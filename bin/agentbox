@@ -1,0 +1,77 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+MACHINE=${AGENTBOX_MACHINE:-}
+PUBKEY=${AGENTBOX_PUBKEY:-$HOME/.ssh/id_ed25519.pub}
+STATE="claude-config gh-config git-config pnpm-store"
+
+usage() {
+  cat <<USAGE
+agentbox new <id>    create a session from this directory's git origin and open it
+agentbox open <id>   open a session (in cmux when inside it, plain ssh otherwise)
+agentbox ls          list sessions
+agentbox rm <id>     delete a session (refuses if work is not pushed)
+
+AGENTBOX_MACHINE  DevPod machine that hosts the sessions (required)
+AGENTBOX_REPO     workspace repo to create sessions from (default: git origin)
+AGENTBOX_PUBKEY   key to authorize in new sessions (default: ~/.ssh/id_ed25519.pub)
+USAGE
+  exit 1
+}
+
+machine() {
+  [ -n "$MACHINE" ] || { echo "Set AGENTBOX_MACHINE to the DevPod machine that hosts sessions" >&2; exit 1; }
+  echo "$MACHINE"
+}
+
+container() {
+  echo "\$(docker ps -q --filter volume=/workspaces/$1)"
+}
+
+open_session() {
+  if [ -n "${CMUX_SOCKET_PATH:-}" ]; then
+    exec cmux ssh "$1.agentbox" -A --name "$1"
+  fi
+  exec ssh -A "$1.agentbox"
+}
+
+cmd=${1:-}; id=${2:-}
+case "$cmd" in
+  new)
+    [ -n "$id" ] || usage
+    m=$(machine)
+    repo=${AGENTBOX_REPO:-$(git remote get-url origin)}
+    ssh "$m" "sudo install -d -o 1000 -g 1000 $(printf '/home/devpod/%s ' $STATE)"
+    devpod up "$repo" --id "$id" --machine "$m" --ide none --disable-daemon
+    ssh "$m" "docker exec -i -u 1000 $(container "$id") sh -c 'mkdir -p ~/.ssh && cat >> ~/.ssh/authorized_keys'" < "$PUBKEY"
+    open_session "$id"
+    ;;
+  open)
+    [ -n "$id" ] || usage
+    open_session "$id"
+    ;;
+  ls)
+    devpod list
+    ;;
+  rm)
+    [ -n "$id" ] || usage
+    dirty=$(ssh "$id.agentbox" 'cd /workspaces/'"$id"' && for r in . projects/*; do
+      [ -d "$r/.git" ] || continue
+      s=$(git -C "$r" status --porcelain); u=$(git -C "$r" log --branches --not --remotes --oneline)
+      [ -z "$s$u" ] || echo "$r"
+    done')
+    if [ -n "$dirty" ]; then
+      echo "Not deleting $id, unpushed or uncommitted work in:" >&2
+      echo "$dirty" >&2
+      exit 1
+    fi
+    devpod delete "$id" --force
+    ;;
+  proxy)
+    id=${id%.agentbox}
+    exec ssh "$(machine)" "docker exec -i -u root $(container "$id") sh -c 'mkdir -p /run/sshd && exec /usr/sbin/sshd -i'"
+    ;;
+  *)
+    usage
+    ;;
+esac

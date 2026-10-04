@@ -1,0 +1,26 @@
+{
+  "id": "agentbox",
+  "version": "1.0.0",
+  "name": "agentbox",
+  "description": "A container per coding-agent session: sshd, helix, yazi, lazygit, delta, and the session state shared from the host.",
+  "documentationURL": "https://github.com/novibe-org/agentbox",
+  "installsAfter": [
+    "ghcr.io/devcontainers/features/common-utils",
+    "ghcr.io/devcontainers/features/github-cli",
+    "ghcr.io/anthropics/devcontainer-features/claude-code"
+  ],
+  "containerEnv": {
+    "CLAUDE_CONFIG_DIR": "/agentbox/claude",
+    "GH_CONFIG_DIR": "/agentbox/gh",
+    "GIT_CONFIG_GLOBAL": "/agentbox/git/config",
+    "npm_config_store_dir": "/agentbox/pnpm-store",
+    "COREPACK_ENABLE_DOWNLOAD_PROMPT": "0",
+    "EDITOR": "hx"
+  },
+  "mounts": [
+    { "source": "/home/devpod/claude-config", "target": "/agentbox/claude", "type": "bind" },
+    { "source": "/home/devpod/gh-config", "target": "/agentbox/gh", "type": "bind" },
+    { "source": "/home/devpod/git-config", "target": "/agentbox/git", "type": "bind" },
+    { "source": "/home/devpod/pnpm-store", "target": "/agentbox/pnpm-store", "type": "bind" }
+  ]
+}
