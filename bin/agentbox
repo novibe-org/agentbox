@@ -7,13 +7,15 @@ STATE="claude-config gh-config git-config pnpm-store"
 
 usage() {
   cat <<USAGE
-agentbox new <id>    create a session from this directory's git origin and open it
+agentbox new <id> [repo]
+                     create a session and open it; repo is a git URL or GitHub
+                     owner/name (default: AGENTBOX_REPO, then this directory's origin)
 agentbox open <id>   open a session (in cmux when inside it, plain ssh otherwise)
 agentbox ls          list sessions
 agentbox rm <id>     delete a session (refuses if work is not pushed)
 
 AGENTBOX_MACHINE  DevPod machine that hosts the sessions (required)
-AGENTBOX_REPO     workspace repo to create sessions from (default: git origin)
+AGENTBOX_REPO     workspace repo to create sessions from
 AGENTBOX_PUBKEY   key to authorize in new sessions (default: ~/.ssh/id_ed25519.pub)
 USAGE
   exit 1
@@ -28,6 +30,15 @@ container() {
   echo "\$(docker ps -q --filter volume=/workspaces/$1)"
 }
 
+repo_url() {
+  case "$1" in
+    *:*) echo "$1" ;;
+    */*@*) echo "git@github.com:${1%%@*}.git@${1#*@}" ;;
+    */*) echo "git@github.com:$1.git" ;;
+    *) echo "Not a git URL or GitHub owner/name: $1" >&2; exit 1 ;;
+  esac
+}
+
 open_session() {
   if [ -n "${CMUX_SOCKET_PATH:-}" ]; then
     exec cmux ssh "$1.agentbox" -A --name "$1"
@@ -40,7 +51,7 @@ case "$cmd" in
   new)
     [ -n "$id" ] || usage
     m=$(machine)
-    repo=${AGENTBOX_REPO:-$(git remote get-url origin)}
+    repo=$(repo_url "${3:-${AGENTBOX_REPO:-$(git remote get-url origin)}}")
     ssh "$m" "sudo install -d -o 1000 -g 1000 $(printf '/home/devpod/%s ' $STATE)"
     devpod up "$repo" --id "$id" --machine "$m" --ide none --disable-daemon
     ssh "$m" "docker exec -i -u 1000 $(container "$id") sh -c 'mkdir -p ~/.ssh && cat >> ~/.ssh/authorized_keys'" < "$PUBKEY"

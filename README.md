@@ -73,10 +73,11 @@ Host *.agentbox
 
 `<id>.agentbox` goes straight into the session's container through the host, bypassing DevPod's slower SSH path.
 
-From inside a workspace checkout:
+Name the workspace repo, or run from inside a checkout of it:
 
 ```bash
-agentbox new fix-login   # create a session from this repo's origin and open it
+agentbox new fix-login myorg/workspace   # create a session and open it
+agentbox new fix-login                   # same, from this directory's origin
 agentbox open fix-login  # reconnect
 agentbox ls
 agentbox rm fix-login
