@@ -1,3 +1,5 @@
+<img src=".github/icon.svg" alt="" width="96" height="96" align="right" />
+
 # agentbox
 
 One container per coding-agent session, on a remote Docker host managed by [DevPod](https://devpod.sh). Each session gets its own clone of a workspace repo; you reach it over SSH straight into the container.
