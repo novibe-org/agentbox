@@ -32,6 +32,8 @@ container() {
 
 repo_url() {
   case "$1" in
+    # The host has no HTTPS credentials, so clone GitHub over SSH with the forwarded agent.
+    https://github.com/*) r=${1#https://github.com/}; r=${r/.git@/@}; repo_url "${r%.git}" ;;
     *:*) echo "$1" ;;
     */*@*) echo "git@github.com:${1%%@*}.git@${1#*@}" ;;
     */*) echo "git@github.com:$1.git" ;;
