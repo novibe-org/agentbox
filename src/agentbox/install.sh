@@ -32,7 +32,9 @@ mkdir -p "$SKILLS/security-audit"
 curl -LsSf "https://github.com/cloudflare/security-audit-skill/archive/$SECURITY_AUDIT.tar.gz" |
   tar -xz -C "$SKILLS/security-audit" --strip-components=3 "security-audit-skill-$SECURITY_AUDIT/skills/security-audit"
 curl -LsSfo "$SKILLS/security-audit/LICENSE" "https://raw.githubusercontent.com/cloudflare/security-audit-skill/$SECURITY_AUDIT/LICENSE"
-chmod -R a+rX /etc/claude-code
+chmod a+x /etc/claude-code /etc/claude-code/.claude
+chmod a+rx "$SKILLS"
+chmod -R a+rX "$SKILLS/security-audit"
 
 # Login shells over SSH don't see containerEnv, so repeat it here.
 cat > /etc/environment <<ENV
