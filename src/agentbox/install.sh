@@ -10,6 +10,7 @@ LAZYGIT=0.65.1
 DELTA=0.19.2
 HELIX=25.07.1
 YAZI=26.9.1
+SECURITY_AUDIT=c1c8a8c1471069fb0e188eeaff69b8e8db6564a8
 
 apt-get update -qq
 DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends \
@@ -24,6 +25,10 @@ ln -sf /usr/local/share/helix/hx "$BIN/hx"
 curl -LsSfo /tmp/yazi.zip "https://github.com/sxyazi/yazi/releases/download/v$YAZI/yazi-x86_64-unknown-linux-musl.zip"
 unzip -joq /tmp/yazi.zip yazi-x86_64-unknown-linux-musl/yazi yazi-x86_64-unknown-linux-musl/ya -d "$BIN" && rm /tmp/yazi.zip
 if command -v corepack >/dev/null; then corepack enable --install-directory "$BIN" pnpm; fi
+mkdir -p /usr/local/share/agentbox/skills/security-audit
+curl -LsSf "https://github.com/cloudflare/security-audit-skill/archive/$SECURITY_AUDIT.tar.gz" |
+  tar -xz -C /usr/local/share/agentbox/skills/security-audit --strip-components=3 "security-audit-skill-$SECURITY_AUDIT/skills/security-audit"
+curl -LsSfo /usr/local/share/agentbox/skills/security-audit/LICENSE "https://raw.githubusercontent.com/cloudflare/security-audit-skill/$SECURITY_AUDIT/LICENSE"
 
 # Login shells over SSH don't see containerEnv, so repeat it here.
 cat > /etc/environment <<ENV
