@@ -17,7 +17,6 @@
     "COREPACK_ENABLE_DOWNLOAD_PROMPT": "0",
     "EDITOR": "hx"
   },
-  "postStartCommand": "mkdir -p /agentbox/claude/skills && ln -sfn /usr/local/share/agentbox/skills/security-audit /agentbox/claude/skills/security-audit",
   "mounts": [
     { "source": "/home/devpod/claude-config", "target": "/agentbox/claude", "type": "bind" },
     { "source": "/home/devpod/gh-config", "target": "/agentbox/gh", "type": "bind" },

@@ -24,7 +24,7 @@ Any x86_64 Docker host registered as a DevPod machine. Shared state lives under 
 | `/home/devpod/git-config`    | `/agentbox/git`       | git identity (`config`)  |
 | `/home/devpod/pnpm-store`    | `/agentbox/pnpm-store`| pnpm package store       |
 
-Each session links the image's `security-audit` skill into `/agentbox/claude/skills`, so Claude Code in every session can run it.
+The `security-audit` skill is installed in Claude Code's managed skills folder, `/etc/claude-code/.claude/skills/`, so it is in every session without touching the shared config.
 
 `agentbox new` creates these directories if they are missing. The container user must be uid 1000, as `node` is in the Node images.
 
