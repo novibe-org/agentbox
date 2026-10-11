@@ -41,6 +41,7 @@ CLAUDE_CONFIG_DIR=/agentbox/claude
 GH_CONFIG_DIR=/agentbox/gh
 GIT_CONFIG_GLOBAL=/agentbox/git/config
 npm_config_store_dir=/agentbox/pnpm-store
+pnpm_config_store_dir=/agentbox/pnpm-store
 COREPACK_ENABLE_DOWNLOAD_PROMPT=0
 EDITOR=hx
 ENV
