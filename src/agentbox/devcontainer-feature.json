@@ -1,6 +1,6 @@
 {
   "id": "agentbox",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "name": "agentbox",
   "description": "A container per coding-agent session: sshd, helix, yazi, lazygit, delta, and the session state shared from the host.",
   "documentationURL": "https://github.com/novibe-org/agentbox",
@@ -14,6 +14,7 @@
     "GH_CONFIG_DIR": "/agentbox/gh",
     "GIT_CONFIG_GLOBAL": "/agentbox/git/config",
     "npm_config_store_dir": "/agentbox/pnpm-store",
+    "pnpm_config_store_dir": "/agentbox/pnpm-store",
     "COREPACK_ENABLE_DOWNLOAD_PROMPT": "0",
     "EDITOR": "hx"
   },
