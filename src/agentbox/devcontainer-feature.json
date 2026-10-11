@@ -1,8 +1,8 @@
 {
   "id": "agentbox",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "name": "agentbox",
-  "description": "A container per coding-agent session: sshd, helix, yazi, lazygit, delta, and the session state shared from the host.",
+  "description": "A container per coding-agent session: sshd, helix, yazi, lazygit, delta, Cloudflare's security-audit skill, and the session state shared from the host.",
   "documentationURL": "https://github.com/novibe-org/agentbox",
   "installsAfter": [
     "ghcr.io/devcontainers/features/common-utils",

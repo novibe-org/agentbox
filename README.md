@@ -6,7 +6,7 @@ One container per coding-agent session, on a remote Docker host managed by [DevP
 
 agentbox is two things:
 
-- **A devcontainer Feature**, `ghcr.io/novibe-org/agentbox/agentbox`: sshd, helix, yazi, lazygit, delta, ripgrep, and the mounts that share session state across containers.
+- **A devcontainer Feature**, `ghcr.io/novibe-org/agentbox/agentbox`: sshd, helix, yazi, lazygit, delta, ripgrep, Cloudflare's [security-audit](https://github.com/cloudflare/security-audit-skill) skill, and the mounts that share session state across containers.
 - **A CLI**, `bin/agentbox`, that creates, opens, lists and deletes sessions from your machine.
 
 ## Isolation
@@ -30,6 +30,8 @@ Any x86_64 Docker host registered as a DevPod machine. Shared state lives under 
 | `/home/devpod/gh-config`     | `/agentbox/gh`        | GitHub CLI login         |
 | `/home/devpod/git-config`    | `/agentbox/git`       | git identity (`config`)  |
 | `/home/devpod/pnpm-store`    | `/agentbox/pnpm-store`| pnpm package store       |
+
+The `security-audit` skill is installed in Claude Code's managed skills folder, `/etc/claude-code/.claude/skills/`, so it is in every session without touching the shared config.
 
 `agentbox new` creates these directories if they are missing. The container user must be uid 1000, as `node` is in the Node images.
 

@@ -10,6 +10,7 @@ LAZYGIT=0.65.1
 DELTA=0.19.2
 HELIX=25.07.1
 YAZI=26.9.1
+SECURITY_AUDIT=c1c8a8c1471069fb0e188eeaff69b8e8db6564a8
 
 apt-get update -qq
 DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends \
@@ -24,6 +25,16 @@ ln -sf /usr/local/share/helix/hx "$BIN/hx"
 curl -LsSfo /tmp/yazi.zip "https://github.com/sxyazi/yazi/releases/download/v$YAZI/yazi-x86_64-unknown-linux-musl.zip"
 unzip -joq /tmp/yazi.zip yazi-x86_64-unknown-linux-musl/yazi yazi-x86_64-unknown-linux-musl/ya -d "$BIN" && rm /tmp/yazi.zip
 if command -v corepack >/dev/null; then corepack enable --install-directory "$BIN" pnpm; fi
+
+# Claude Code's managed skills folder sits outside the /agentbox/claude mount, so the build can fill it.
+SKILLS=/etc/claude-code/.claude/skills
+mkdir -p "$SKILLS/security-audit"
+curl -LsSf "https://github.com/cloudflare/security-audit-skill/archive/$SECURITY_AUDIT.tar.gz" |
+  tar -xz -C "$SKILLS/security-audit" --strip-components=3 "security-audit-skill-$SECURITY_AUDIT/skills/security-audit"
+curl -LsSfo "$SKILLS/security-audit/LICENSE" "https://raw.githubusercontent.com/cloudflare/security-audit-skill/$SECURITY_AUDIT/LICENSE"
+chmod a+x /etc/claude-code /etc/claude-code/.claude
+chmod a+rx "$SKILLS"
+chmod -R a+rX "$SKILLS/security-audit"
 
 # Login shells over SSH don't see containerEnv, so repeat it here.
 cat > /etc/environment <<ENV
