@@ -82,6 +82,7 @@ A workspace is a git repo whose `.devcontainer` uses the Feature and clones the 
 {
   "name": "myworkspace",
   "image": "mcr.microsoft.com/devcontainers/typescript-node:22",
+  "runArgs": ["--restart=unless-stopped"],
   "features": {
     "ghcr.io/anthropics/devcontainer-features/claude-code:1": {},
     "ghcr.io/devcontainers/features/github-cli:1": {},
@@ -104,6 +105,7 @@ done
 
 Good habits for a workspace repo:
 
+- **Restart with the host**: `runArgs: ["--restart=unless-stopped"]`, as above, brings sessions back after the host or Docker restarts.
 - **Ignore `projects/`** in its `.gitignore`. The cloned repos stay independent; `git add projects/` would turn them into gitlinks.
 - **Keep `setup.sh` idempotent**: guard each clone, as above, so a rebuild doesn't fail on what is already there.
 - **Install from lockfiles** (`--frozen-lockfile`, `npm ci`). With the shared pnpm store, a second session installs mostly from cache.
@@ -185,5 +187,5 @@ Set `"openTerminalLinksInCmuxBrowser": false` instead to send every link out, lo
 - **Push before you leave a session.** `rm` refuses to delete unpushed work, but losing the host loses it.
 - **Let agents push branches, not `main`.** They act with your accounts; branch protection on your repos is the guard rail.
 - **Rebuild instead of repairing.** If a session's environment drifts, `agentbox rm` and `agentbox new` with the same id start clean from the workspace repo.
-- **Bring a stopped session back** with `devpod up <id> --ide none`, then `agentbox open <id>`. Containers don't restart by themselves after the host reboots.
+- **Bring a stopped session back** with `devpod up <id> --ide none`, then `agentbox open <id>`. Sessions without the restart policy stay down after the host reboots.
 - **Watch the disk.** `ssh agent-host df -h /home/devpod` shows the volume; `docker system prune` on the host clears old images after Feature updates.
