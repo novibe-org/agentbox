@@ -1,0 +1,8 @@
+{
+  "extends": ["madr-lint:recommended"],
+  "madrVersion": "4",
+  "adrDir": "docs/adrs",
+  "rules": {
+    "madr/filename-format": ["error", { "pattern": "^[0-9]{4}-[a-z0-9-]+\\.md$" }]
+  }
+}
