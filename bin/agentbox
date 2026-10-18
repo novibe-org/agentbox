@@ -3,7 +3,6 @@ set -euo pipefail
 
 MACHINE=${AGENTBOX_MACHINE:-}
 PUBKEY=${AGENTBOX_PUBKEY:-$HOME/.ssh/id_ed25519.pub}
-STATE="claude-config gh-config git-config pnpm-store"
 
 usage() {
   cat <<USAGE
@@ -30,6 +29,22 @@ container() {
   echo "\$(docker ps -q --filter volume=/workspaces/$1)"
 }
 
+# Shared state lives under /home/devpod/.agentbox. Feature 1.x mounted it straight
+# from /home/devpod, so move it once and leave links for those sessions.
+prepare_host() {
+  ssh "$1" 'bash -s' <<'SH'
+set -euo pipefail
+for pair in claude-config:claude gh-config:gh git-config:git pnpm-store:pnpm-store; do
+  old=/home/devpod/${pair%%:*} new=/home/devpod/.agentbox/${pair#*:}
+  if [ -d "$old" ] && [ ! -L "$old" ] && [ ! -e "$new" ]; then
+    sudo install -d -o 1000 -g 1000 /home/devpod/.agentbox
+    sudo mv "$old" "$new" && sudo ln -s "$new" "$old"
+  fi
+  sudo install -d -o 1000 -g 1000 "$new"
+done
+SH
+}
+
 repo_url() {
   case "$1" in
     # The host has no HTTPS credentials, so clone GitHub over SSH with the forwarded agent.
@@ -54,7 +69,7 @@ case "$cmd" in
     [ -n "$id" ] || usage
     m=$(machine)
     repo=$(repo_url "${3:-${AGENTBOX_REPO:-$(git remote get-url origin)}}")
-    ssh "$m" "sudo install -d -o 1000 -g 1000 $(printf '/home/devpod/%s ' $STATE)"
+    prepare_host "$m"
     devpod up "$repo" --id "$id" --machine "$m" --ide none --disable-daemon
     ssh "$m" "docker exec -i -u 1000 $(container "$id") sh -c 'mkdir -p ~/.ssh && cat >> ~/.ssh/authorized_keys'" < "$PUBKEY"
     open_session "$id"
