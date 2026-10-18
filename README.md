@@ -22,18 +22,20 @@ Sessions are isolated from each other and from your laptop, not from your accoun
 
 ## The session host
 
-Any x86_64 Docker host registered as a DevPod machine. Shared state lives under `/home/devpod` on the host, owned by uid 1000, and is mounted into every session:
+Any x86_64 Docker host registered as a DevPod machine. Shared state lives under `/home/devpod/.agentbox` on the host, owned by uid 1000, and is mounted into every session:
 
-| Host                         | Container             | Holds                    |
-| ---------------------------- | --------------------- | ------------------------ |
-| `/home/devpod/claude-config` | `/agentbox/claude`    | Claude Code login, settings |
-| `/home/devpod/gh-config`     | `/agentbox/gh`        | GitHub CLI login         |
-| `/home/devpod/git-config`    | `/agentbox/git`       | git identity (`config`)  |
-| `/home/devpod/pnpm-store`    | `/agentbox/pnpm-store`| pnpm package store       |
+| Host                                | Container              | Holds                       |
+| ----------------------------------- | ---------------------- | --------------------------- |
+| `/home/devpod/.agentbox/claude`     | `/agentbox/claude`     | Claude Code login, settings |
+| `/home/devpod/.agentbox/gh`         | `/agentbox/gh`         | GitHub CLI login            |
+| `/home/devpod/.agentbox/git`        | `/agentbox/git`        | git identity (`config`)     |
+| `/home/devpod/.agentbox/pnpm-store` | `/agentbox/pnpm-store` | pnpm package store          |
 
 The `security-audit` skill is installed in Claude Code's managed skills folder, `/etc/claude-code/.claude/skills/`, so it is in every session without touching the shared config.
 
-`agentbox new` creates these directories if they are missing. The container user must be uid 1000, as `node` is in the Node images.
+`agentbox new` creates these directories if they are missing. Feature 1.x kept them directly in `/home/devpod`; the first `agentbox new` with this CLI moves them and leaves symlinks, so sessions on `:1` keep working. The container user must be uid 1000, as `node` is in the Node images.
+
+A workspace can share its own state the same way: keep it in another directory under `/home/devpod/.agentbox` and add a `mounts` entry to its `devcontainer.json`. The directory must exist before the session is created, or Docker creates it empty and owned by root.
 
 The CLI reaches the host as `ssh $AGENTBOX_MACHINE`, so that name must work as an SSH host on its own.
 
@@ -88,7 +90,7 @@ A workspace is a git repo whose `.devcontainer` uses the Feature and clones the 
   "features": {
     "ghcr.io/anthropics/devcontainer-features/claude-code:1": {},
     "ghcr.io/devcontainers/features/github-cli:1": {},
-    "ghcr.io/novibe-org/agentbox/agentbox:1": {}
+    "ghcr.io/novibe-org/agentbox/agentbox:2": {}
   },
   "postCreateCommand": "bash .devcontainer/setup.sh"
 }
@@ -169,7 +171,7 @@ git config --global user.name  "Your Name"
 git config --global user.email "you@example.com"
 ```
 
-Deleting a session keeps them; only deleting the directories under `/home/devpod` on the host removes them.
+Deleting a session keeps them; only deleting the directories under `/home/devpod/.agentbox` on the host removes them.
 
 ## cmux
 
