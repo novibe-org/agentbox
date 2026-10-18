@@ -19,6 +19,7 @@ views {
     agentbox.cli -> agentbox.sshConfig 'writes box2\'s entry'
     developer -> agentbox.cli 'agentbox new fix-login acme/workspace --host box2'
     agentbox.cli -> github 'clones acme/workspace on box2'
+    agentbox.cli -> agentbox.sessionRegistry 'records fix-login on box2'
     agentbox.cli -> agentbox.session 'builds and opens fix-login'
   }
 

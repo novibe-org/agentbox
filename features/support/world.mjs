@@ -1,6 +1,6 @@
 import { After, AfterAll, Before, BeforeAll, setDefaultTimeout, setWorldConstructor } from '@cucumber/cucumber'
 import { execFileSync, spawnSync } from 'node:child_process'
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 
@@ -9,6 +9,7 @@ setDefaultTimeout(20 * 60 * 1000)
 const repo = resolve(import.meta.dirname, '../..')
 const home = homedir()
 const fixtures = mkdtempSync(join(tmpdir(), 'agentbox-fixtures-'))
+chmodSync(fixtures, 0o755)
 const workspace = `file://${fixtures}/acme/workspace.git`
 let agent
 

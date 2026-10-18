@@ -36,7 +36,7 @@ It shaped the views `containers`, `deployment` and `createHost`.
 * Good, because a failed create rolls back, `tofu destroy` deletes, and a plan shows changes before they happen
 * Good, because stopping a host is one variable: the server goes, the volume stays, which is what Hetzner's billing of stopped servers needs
 * Bad, because `tofu` must be installed on the developer's machine
-* Bad, because each host's state lives on the developer's machine and holds secrets; it is encrypted with OpenTofu's state encryption, and a lost state means importing or deleting the host's resources by hand
+* Bad, because each host's state lives on the developer's machine, and a lost state means importing or deleting the host's resources by hand; once the state holds a secret, it is encrypted with OpenTofu's state encryption
 
 ### Confirmation
 

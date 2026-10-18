@@ -30,7 +30,10 @@ model {
     }
     hostRegistry = store 'Host registry' {
       description 'One directory per host under ~/.agentbox/hosts, holding its OpenTofu state.'
-      technology 'OpenTofu state, encrypted'
+      technology 'OpenTofu state, SSH key pair'
+    }
+    sessionRegistry = store 'Session registry' {
+      description 'One file per session under ~/.agentbox/sessions, naming the host it runs on.'
     }
     sshConfig = store 'SSH config' {
       description '~/.ssh/agentbox.conf: every host and the *.agentbox block, included from ~/.ssh/config.'
@@ -48,6 +51,7 @@ model {
     }
 
     cli -> hostRegistry 'keeps each host\'s state in'
+    cli -> sessionRegistry 'records each session\'s host in'
     cli -> sshConfig 'writes each host\'s entry to'
     cli -> hetznerModule 'applies, fetched by its release tag' {
       technology 'OpenTofu'
