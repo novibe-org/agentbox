@@ -1,6 +1,6 @@
 {
   "id": "agentbox",
-  "version": "2.0.0",
+  "version": "3.0.0",
   "name": "agentbox",
   "description": "A container per coding-agent session: sshd, helix, yazi, lazygit, delta, Cloudflare's security-audit skill, and the session state shared from the host.",
   "documentationURL": "https://github.com/novibe-org/agentbox",
@@ -19,9 +19,9 @@
     "EDITOR": "hx"
   },
   "mounts": [
-    { "source": "/home/devpod/.agentbox/claude", "target": "/agentbox/claude", "type": "bind" },
-    { "source": "/home/devpod/.agentbox/gh", "target": "/agentbox/gh", "type": "bind" },
-    { "source": "/home/devpod/.agentbox/git", "target": "/agentbox/git", "type": "bind" },
-    { "source": "/home/devpod/.agentbox/pnpm-store", "target": "/agentbox/pnpm-store", "type": "bind" }
+    { "source": "/var/lib/agentbox/claude", "target": "/agentbox/claude", "type": "bind" },
+    { "source": "/var/lib/agentbox/gh", "target": "/agentbox/gh", "type": "bind" },
+    { "source": "/var/lib/agentbox/git", "target": "/agentbox/git", "type": "bind" },
+    { "source": "/var/lib/agentbox/pnpm-store", "target": "/agentbox/pnpm-store", "type": "bind" }
   ]
 }
