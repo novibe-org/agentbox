@@ -112,7 +112,11 @@ case "$cmd" in
 set -euo pipefail
 d=/home/devpod/.agentbox/sessions/$1
 [ -d "$d/.git" ] || GIT_SSH_COMMAND="ssh -o StrictHostKeyChecking=accept-new" git clone -q ${3:+-b "$3"} "$2" "$d"
-host_dc up --workspace-folder "$d" --id-label "agentbox.session=$1" --skip-post-create >/dev/null
+# The Dev Container CLI writes a lockfile into the clone unless the repo has one, which
+# would leave every session with uncommitted work. Use a committed one; else write none.
+lock=--no-lockfile
+[ ! -f "$d/.devcontainer/devcontainer-lock.json" ] && [ ! -f "$d/.devcontainer-lock.json" ] || lock=
+host_dc up --workspace-folder "$d" --id-label "agentbox.session=$1" --skip-post-create $lock >/dev/null
 SH
     ssh "$m" "docker exec -i -u 1000 $(container "$id") sh -c 'mkdir -p ~/.ssh && cat >> ~/.ssh/authorized_keys'" < "$PUBKEY"
 
@@ -123,7 +127,7 @@ SH
     holder=$!
     trap 'kill $holder 2>/dev/null || true' EXIT
     for _ in $(seq 40); do
-      ssh "$m" "docker exec $(container "$id") test -S /tmp/agentbox-agent.sock" && break
+      ssh "$m" "docker exec -u 1000 $(container "$id") test -S /tmp/agentbox-agent.sock" && break
       sleep 0.5
     done
     on_host "$m" "$id" <<'SH'
@@ -149,6 +153,10 @@ SH
     [ -n "$id" ] || usage
     session_id "$id"
     m=$(machine)
+    if [ -z "$(ssh "$m" "docker ps -aq --filter label=agentbox.session=$id")" ]; then
+      echo "$id has no agentbox container. A session created with DevPod goes with: devpod delete $id --force" >&2
+      exit 1
+    fi
     dirty=$(ssh "$id.agentbox" 'cd /workspaces/'"$id"' && for r in . projects/*; do
       [ -d "$r/.git" ] || continue
       s=$(git -C "$r" status --porcelain); u=$(git -C "$r" log --branches --not --remotes --oneline)
@@ -162,13 +170,10 @@ SH
     on_host "$m" "$id" <<'SH'
 set -euo pipefail
 c=$(docker ps -aq --filter "label=agentbox.session=$1" | head -1)
-if [ -z "$c" ]; then
-  echo "$1 has no agentbox container. A session created with DevPod goes with: devpod delete $1 --force" >&2
-  exit 1
-fi
-img=$(docker inspect -f '{{.Image}}' "$c")
+# The CLI builds <name>-features, then <name>-features-uid on top for the container.
+img=$(docker inspect -f '{{.Config.Image}}' "$c")
 docker rm -f "$c" >/dev/null
-docker rmi "$img" >/dev/null 2>&1 || true
+docker rmi "$img" "${img%-uid}" >/dev/null 2>&1 || true
 rm -rf "/home/devpod/.agentbox/sessions/$1"
 SH
     ;;
@@ -176,7 +181,7 @@ SH
     id=${id%.agentbox}
     session_id "$id"
     # Start the container if the host rebooted without it, then hand the connection to sshd.
-    exec ssh "$(machine)" "c=$(container "$id"); [ -n \"\$c\" ] || c=\$(docker ps -aq --filter volume=/workspaces/$id | head -1); docker start \$c >/dev/null && exec docker exec -i -u root \$c sh -c 'mkdir -p /run/sshd && exec /usr/sbin/sshd -i'"
+    exec ssh "$(machine)" "c=$(container "$id"); [ -n \"\$c\" ] || c=\$(docker ps -aq --filter volume=/workspaces/$id | head -1); [ -n \"\$c\" ] || { echo 'No session $id on this host' >&2; exit 1; }; docker start \$c >/dev/null && exec docker exec -i -u root \$c sh -c 'mkdir -p /run/sshd && exec /usr/sbin/sshd -i'"
     ;;
   *)
     usage
