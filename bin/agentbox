@@ -111,7 +111,14 @@ case "$cmd" in
     { declare -f host_dc; cat; } <<'SH' | ssh -A -o ControlPath=none "$m" "bash -s -- $(printf '%q ' "$id" "$repo" "$branch")"
 set -euo pipefail
 d=/home/devpod/.agentbox/sessions/$1
-[ -d "$d/.git" ] || GIT_SSH_COMMAND="ssh -o StrictHostKeyChecking=accept-new" git clone -q ${3:+-b "$3"} "$2" "$d"
+if [ -n "$(docker ps -aq --filter "label=agentbox.session=$1")" ]; then
+  echo "Session $1 exists: agentbox open $1, or agentbox rm $1 first" >&2
+  exit 1
+fi
+# Clone fresh every time. A clone left by an earlier session may carry changes its
+# agent made, and devcontainer.json's initializeCommand runs on the host.
+rm -rf "$d"
+GIT_SSH_COMMAND="ssh -o StrictHostKeyChecking=accept-new" git clone -q ${3:+-b "$3"} -- "$2" "$d"
 # The Dev Container CLI writes a lockfile into the clone unless the repo has one, which
 # would leave every session with uncommitted work. Use a committed one; else write none.
 lock=--no-lockfile
