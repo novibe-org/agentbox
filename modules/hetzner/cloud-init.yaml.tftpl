@@ -1,0 +1,32 @@
+#cloud-config
+disable_root: true
+ssh_pwauth: false
+users:
+  - name: agentbox
+    uid: "1000"
+    shell: /bin/bash
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    ssh_authorized_keys:
+      - ${ssh_public_key}
+package_update: true
+packages:
+  - docker.io
+  - docker-buildx
+  - git
+  - curl
+  - xz-utils
+write_files:
+  - path: /usr/local/sbin/agentbox-mount-volume
+    permissions: "0755"
+    content: |
+      #!/bin/sh
+      set -e
+      dev=/dev/disk/by-id/scsi-0HC_Volume_${volume_id}
+      for i in $(seq 120); do [ -e "$dev" ] && break; sleep 1; done
+      mkdir -p /var/lib/agentbox
+      grep -q "$dev" /etc/fstab || echo "$dev /var/lib/agentbox ext4 discard,nofail,defaults 0 0" >> /etc/fstab
+      mount /var/lib/agentbox
+      chown 1000:1000 /var/lib/agentbox
+runcmd:
+  - usermod -aG docker agentbox
+  - /usr/local/sbin/agentbox-mount-volume

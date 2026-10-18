@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# Stands in for tofu running the Hetzner module: apply starts a test host container
+# named after the host's directory, and output gives its address.
+set -euo pipefail
+d=${1#-chdir=}
+c=agentbox-test-$(basename "$d")
+case $2 in
+  init) ;;
+  apply)
+    docker run -d --name "$c" --label agentbox.test=host \
+      -e AUTHORIZED_KEY="$(cat "$d/id_ed25519.pub")" \
+      -v /var/run/docker.sock:/var/run/docker.sock \
+      -v /var/lib/agentbox:/var/lib/agentbox \
+      -v "$AGENTBOX_TEST_FIXTURES:$AGENTBOX_TEST_FIXTURES:ro" \
+      agentbox-test-host >/dev/null
+    echo '{}' > "$d/terraform.tfstate"
+    ;;
+  output) docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$c" ;;
+esac

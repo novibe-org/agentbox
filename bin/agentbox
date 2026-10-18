@@ -1,65 +1,88 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+VERSION=0.1.0
 MACHINE=${AGENTBOX_MACHINE:-}
 PUBKEY=${AGENTBOX_PUBKEY:-$HOME/.ssh/id_ed25519.pub}
+HOSTS=$HOME/.agentbox/hosts
+SESSIONS=$HOME/.agentbox/sessions
 
 usage() {
   cat <<USAGE
-agentbox new <id> [repo]
+agentbox new <id> [repo] [--host <name>]
                      create a session and open it; repo is a git URL or GitHub
                      owner/name (default: AGENTBOX_REPO, then this directory's origin)
 agentbox open <id>   open a session (in cmux when inside it, plain ssh otherwise)
 agentbox ls          list sessions
 agentbox rm <id>     delete a session (refuses if work is not pushed)
+agentbox host create <name> --provider hetzner
+                     create a host for sessions
 
-AGENTBOX_MACHINE  SSH host that runs the sessions (required)
+AGENTBOX_MACHINE  SSH host for sessions created without --host
 AGENTBOX_REPO     workspace repo to create sessions from
 AGENTBOX_PUBKEY   key to authorize in new sessions (default: ~/.ssh/id_ed25519.pub)
+HCLOUD_TOKEN      API token of the Hetzner project that hosts are created in
 USAGE
   exit 1
 }
 
 machine() {
-  [ -n "$MACHINE" ] || { echo "Set AGENTBOX_MACHINE to the SSH host that runs sessions" >&2; exit 1; }
+  [ -n "$MACHINE" ] || { echo "Set AGENTBOX_MACHINE to the SSH host that runs sessions, or pass --host" >&2; exit 1; }
   echo "$MACHINE"
+}
+
+# The host a session was created on; sessions from before --host have no record.
+session_host() {
+  if [ -f "$SESSIONS/$1" ]; then cat "$SESSIONS/$1"; else machine; fi
 }
 
 session_id() {
   [[ $1 =~ ^[a-z0-9][a-z0-9-]*$ ]] || { echo "A session id is lowercase letters, digits and hyphens: $1" >&2; exit 1; }
 }
 
+host_name() {
+  [[ $1 =~ ^[a-z0-9][a-z0-9-]*$ ]] || { echo "A host name is lowercase letters, digits and hyphens: $1" >&2; exit 1; }
+}
+
 # Runs the script on stdin on the host, with the remaining arguments as $1, $2, ...
 # The host functions below are defined first, so every script can use them.
 on_host() {
   local m=$1; shift
-  { declare -f host_dc; cat; } | ssh "$m" "bash -s -- $(printf '%q ' "$@")"
+  { declare -f host_root host_dc; cat; } | ssh "$m" "bash -s -- $(printf '%q ' "$@")"
 }
 
-# On the host: the Dev Container CLI, kept under .agentbox/tools. /home/devpod belongs
-# to root, as the volume's mount point, so npm's and Docker's state stay there too.
+# On the host: where agentbox keeps its state. Hosts created by DevPod keep it on
+# their volume at /home/devpod.
+host_root() {
+  if [ -d /var/lib/agentbox ]; then echo /var/lib/agentbox; else echo /home/devpod/.agentbox; fi
+}
+
+# On the host: the Dev Container CLI, kept under tools. The state directory's parent
+# may belong to root, so npm's and Docker's state stay there too.
 host_dc() {
-  local t=/home/devpod/.agentbox/tools
+  local t
+  t=$(host_root)/tools
   PATH=$t/node/bin:$PATH DOCKER_CONFIG=$t/docker npm_config_cache=$t/npm \
     "$t/node_modules/.bin/devcontainer" "$@" </dev/null
 }
 
-# Shared state lives under /home/devpod/.agentbox. Feature 1.x mounted it straight
-# from /home/devpod, so move it once and leave links for those sessions. Then install
-# Node and the Dev Container CLI, and make room for the sessions' clones.
+# Feature 1.x mounted shared state straight from /home/devpod, so move it once and
+# leave links for those sessions. Then install Node and the Dev Container CLI, and
+# make room for the sessions' clones.
 prepare_host() {
   on_host "$1" <<'SH'
 set -euo pipefail
+r=$(host_root)
 for pair in claude-config:claude gh-config:gh git-config:git pnpm-store:pnpm-store; do
-  old=/home/devpod/${pair%%:*} new=/home/devpod/.agentbox/${pair#*:}
-  if [ -d "$old" ] && [ ! -L "$old" ] && [ ! -e "$new" ]; then
-    sudo install -d -o 1000 -g 1000 /home/devpod/.agentbox
+  old=/home/devpod/${pair%%:*} new=$r/${pair#*:}
+  if [ "$r" = /home/devpod/.agentbox ] && [ -d "$old" ] && [ ! -L "$old" ] && [ ! -e "$new" ]; then
+    sudo install -d -o 1000 -g 1000 "$r"
     sudo mv "$old" "$new" && sudo ln -s "$new" "$old"
   fi
   sudo install -d -o 1000 -g 1000 "$new"
 done
-t=/home/devpod/.agentbox/tools
-sudo install -d -o 1000 -g 1000 "$t" /home/devpod/.agentbox/sessions
+t=$r/tools
+sudo install -d -o 1000 -g 1000 "$t" "$r/sessions"
 cd "$t"
 if [ ! -x node/bin/node ]; then
   curl -fsSL https://nodejs.org/dist/v22.12.0/node-v22.12.0-linux-x64.tar.xz | tar xJ
@@ -95,22 +118,119 @@ open_session() {
   exec ssh -A "$1.agentbox"
 }
 
+# ~/.ssh/agentbox.conf holds every host and the way into sessions; ~/.ssh/config
+# includes it first, so its entries apply before the developer's own.
+write_ssh_config() {
+  mkdir -p -m 700 "$HOME/.ssh" "$HOME/.ssh/cm"
+  {
+    cat "$HOSTS"/*/ssh_config 2>/dev/null || true
+    cat <<CONF
+Host *.agentbox
+  User node
+  ProxyCommand agentbox proxy %h
+  ForwardAgent yes
+  StrictHostKeyChecking no
+  UserKnownHostsFile /dev/null
+  LogLevel error
+CONF
+  } > "$HOME/.ssh/agentbox.conf"
+  local config=$HOME/.ssh/config
+  if ! grep -qx 'Include agentbox.conf' "$config" 2>/dev/null; then
+    local rest
+    rest=$(cat "$config" 2>/dev/null || true)
+    printf 'Include agentbox.conf\n\n%s\n' "$rest" > "$config"
+  fi
+}
+
+host_create() {
+  local name=${1:-} provider=
+  [ -n "$name" ] || usage
+  shift
+  while [ $# -gt 0 ]; do
+    case $1 in
+      --provider) provider=${2:-}; shift 2 || usage ;;
+      *) usage ;;
+    esac
+  done
+  host_name "$name"
+  [ "$provider" = hetzner ] || { echo "Unknown provider: ${provider:-none}. Providers: hetzner" >&2; exit 1; }
+  local d=$HOSTS/$name
+  [ ! -e "$d" ] || { echo "Host $name already exists" >&2; exit 1; }
+  [ -n "${HCLOUD_TOKEN:-}" ] || {
+    echo "agentbox needs an API token for a Hetzner project: create one in the Hetzner Console under Security > API tokens, with read and write access, and set HCLOUD_TOKEN" >&2
+    exit 1
+  }
+  command -v tofu >/dev/null || { echo "agentbox needs OpenTofu to create hosts: https://opentofu.org/docs/intro/install/" >&2; exit 1; }
+
+  mkdir -p "$d"
+  ssh-keygen -q -t ed25519 -N '' -C "agentbox-$name" -f "$d/id_ed25519"
+  cat > "$d/main.tf" <<TF
+module "host" {
+  source         = "git::https://github.com/novibe-org/agentbox.git//modules/hetzner?ref=v$VERSION"
+  name           = "$name"
+  ssh_public_key = file("\${path.module}/id_ed25519.pub")
+}
+
+output "ipv4" {
+  value = module.host.ipv4
+}
+TF
+  tofu -chdir="$d" init -input=false >/dev/null
+  tofu -chdir="$d" apply -input=false -auto-approve >/dev/null
+  local ip
+  ip=$(tofu -chdir="$d" output -raw ipv4)
+  cat > "$d/ssh_config" <<CONF
+Host $name
+  HostName $ip
+  User agentbox
+  IdentityFile $d/id_ed25519
+  IdentitiesOnly yes
+  StrictHostKeyChecking accept-new
+  ControlMaster auto
+  ControlPath ~/.ssh/cm/%r@%h:%p
+  ControlPersist 30m
+  ServerAliveInterval 20
+
+CONF
+  write_ssh_config
+
+  # The server answers SSH before cloud-init has mounted the volume and set up Docker.
+  # A shared connection opened that early would keep the user's groups from before.
+  for _ in $(seq 60); do
+    ssh -o ConnectTimeout=5 -o ControlPath=none "$name" 'mountpoint -q /var/lib/agentbox && docker info' >/dev/null 2>&1 && {
+      echo "Host $name is ready: agentbox new <id> <repo> --host $name"
+      return
+    }
+    sleep 5
+  done
+  echo "Host $name was created but is not ready after 5 minutes: ssh $name to look" >&2
+  exit 1
+}
+
 cmd=${1:-}; id=${2:-}
 case "$cmd" in
   new)
     [ -n "$id" ] || usage
     session_id "$id"
-    m=$(machine)
-    repo=$(repo_url "${3:-${AGENTBOX_REPO:-$(git remote get-url origin)}}")
+    shift 2
+    host= repo=
+    while [ $# -gt 0 ]; do
+      case $1 in
+        --host) host=${2:-}; shift 2 || usage ;;
+        *) repo=$1; shift ;;
+      esac
+    done
+    if [ -n "$host" ]; then host_name "$host"; m=$host; else m=$(machine); fi
+    repo=$(repo_url "${repo:-${AGENTBOX_REPO:-$(git remote get-url origin)}}")
     branch=
     case "$repo" in *.git@*) branch=${repo##*.git@}; repo=${repo%@"$branch"} ;; esac
     prepare_host "$m"
 
     # Clone on the host with the forwarded agent. A shared ControlMaster connection
     # may have been opened without forwarding, so this one gets its own.
-    { declare -f host_dc; cat; } <<'SH' | ssh -A -o ControlPath=none "$m" "bash -s -- $(printf '%q ' "$id" "$repo" "$branch")"
+    { declare -f host_root host_dc; cat; } <<'SH' | ssh -A -o ControlPath=none "$m" "bash -s -- $(printf '%q ' "$id" "$repo" "$branch")"
 set -euo pipefail
-d=/home/devpod/.agentbox/sessions/$1
+d=$(host_root)/sessions/$1
 if [ -n "$(docker ps -aq --filter "label=agentbox.session=$1")" ]; then
   echo "Session $1 exists: agentbox open $1, or agentbox rm $1 first" >&2
   exit 1
@@ -125,6 +245,8 @@ lock=--no-lockfile
 [ ! -f "$d/.devcontainer/devcontainer-lock.json" ] && [ ! -f "$d/.devcontainer-lock.json" ] || lock=
 host_dc up --workspace-folder "$d" --id-label "agentbox.session=$1" --skip-post-create $lock >/dev/null
 SH
+    mkdir -p "$SESSIONS"
+    echo "$m" > "$SESSIONS/$id"
     ssh "$m" "docker exec -i -u 1000 $(container "$id") sh -c 'mkdir -p ~/.ssh && cat >> ~/.ssh/authorized_keys'" < "$PUBKEY"
 
     # The workspace's lifecycle commands (setup.sh) clone over SSH and need the agent.
@@ -139,7 +261,7 @@ SH
     done
     on_host "$m" "$id" <<'SH'
 set -euo pipefail
-host_dc run-user-commands --workspace-folder "/home/devpod/.agentbox/sessions/$1" \
+host_dc run-user-commands --workspace-folder "$(host_root)/sessions/$1" \
   --id-label "agentbox.session=$1" --remote-env SSH_AUTH_SOCK=/tmp/agentbox-agent.sock >/dev/null
 SH
     kill $holder 2>/dev/null || true
@@ -159,7 +281,7 @@ SH
   rm)
     [ -n "$id" ] || usage
     session_id "$id"
-    m=$(machine)
+    m=$(session_host "$id")
     if [ -z "$(ssh "$m" "docker ps -aq --filter label=agentbox.session=$id")" ]; then
       echo "$id has no agentbox container. A session created with DevPod goes with: devpod delete $id --force" >&2
       exit 1
@@ -181,14 +303,21 @@ c=$(docker ps -aq --filter "label=agentbox.session=$1" | head -1)
 img=$(docker inspect -f '{{.Config.Image}}' "$c")
 docker rm -f "$c" >/dev/null
 docker rmi "$img" "${img%-uid}" >/dev/null 2>&1 || true
-rm -rf "/home/devpod/.agentbox/sessions/$1"
+rm -rf "$(host_root)/sessions/$1"
 SH
+    rm -f "$SESSIONS/$id"
     ;;
   proxy)
     id=${id%.agentbox}
     session_id "$id"
     # Start the container if the host rebooted without it, then hand the connection to sshd.
-    exec ssh "$(machine)" "c=$(container "$id"); [ -n \"\$c\" ] || c=\$(docker ps -aq --filter volume=/workspaces/$id | head -1); [ -n \"\$c\" ] || { echo 'No session $id on this host' >&2; exit 1; }; docker start \$c >/dev/null && exec docker exec -i -u root \$c sh -c 'mkdir -p /run/sshd && exec /usr/sbin/sshd -i'"
+    exec ssh "$(session_host "$id")" "c=$(container "$id"); [ -n \"\$c\" ] || c=\$(docker ps -aq --filter volume=/workspaces/$id | head -1); [ -n \"\$c\" ] || { echo 'No session $id on this host' >&2; exit 1; }; docker start \$c >/dev/null && exec docker exec -i -u root \$c sh -c 'mkdir -p /run/sshd && exec /usr/sbin/sshd -i'"
+    ;;
+  host)
+    case "$id" in
+      create) shift 2; host_create "$@" ;;
+      *) usage ;;
+    esac
     ;;
   *)
     usage

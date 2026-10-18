@@ -1,0 +1,33 @@
+name: test
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  module:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: opentofu/setup-opentofu@v1
+        with:
+          tofu_version: 1.10.0
+      - run: tofu -chdir=modules/hetzner fmt -check
+      - run: tofu -chdir=modules/hetzner init -backend=false
+      - run: tofu -chdir=modules/hetzner validate
+
+  spec:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: docker build -q -t agentbox-test-host test/host
+      - run: sudo install -d -o 1000 -g 1000 /var/lib/agentbox
+      - run: npm test
+        env:
+          AGENTBOX_E2E: "1"
