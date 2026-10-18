@@ -15,69 +15,60 @@ Sessions are isolated from each other and from your laptop, not from your accoun
 
 ## Setup at a glance
 
-1. [Create a session host](#the-session-host), for example [on Hetzner](#a-host-on-hetzner).
-2. [Install the CLI](#the-cli) and point it and SSH at the host.
+1. [Install the CLI](#the-cli) and [OpenTofu](https://opentofu.org/docs/intro/install/).
+2. [Create a session host](#a-host-on-hetzner): `agentbox host create box2 --provider hetzner`.
 3. [Make a workspace repo](#a-workspace) whose devcontainer uses the Feature.
-4. `agentbox new <id> <owner/workspace>`, then [log in once](#log-in-once).
+4. `agentbox new <id> <owner/workspace> --host box2`, then [log in once](#log-in-once).
 
 ## The session host
 
-Any x86_64 Docker host you reach over SSH as a user with passwordless `sudo` in the `docker` group. Shared state lives under `/home/devpod/.agentbox` on the host, owned by uid 1000, and is mounted into every session:
+Any x86_64 Docker host you reach over SSH as a user with passwordless `sudo` in the `docker` group. Shared state lives under `/var/lib/agentbox` on the host, owned by uid 1000, and is mounted into every session:
 
-| Host                                | Container              | Holds                       |
-| ----------------------------------- | ---------------------- | --------------------------- |
-| `/home/devpod/.agentbox/claude`     | `/agentbox/claude`     | Claude Code login, settings |
-| `/home/devpod/.agentbox/gh`         | `/agentbox/gh`         | GitHub CLI login            |
-| `/home/devpod/.agentbox/git`        | `/agentbox/git`        | git identity (`config`)     |
-| `/home/devpod/.agentbox/pnpm-store` | `/agentbox/pnpm-store` | pnpm package store          |
+| Host                           | Container              | Holds                       |
+| ------------------------------ | ---------------------- | --------------------------- |
+| `/var/lib/agentbox/claude`     | `/agentbox/claude`     | Claude Code login, settings |
+| `/var/lib/agentbox/gh`         | `/agentbox/gh`         | GitHub CLI login            |
+| `/var/lib/agentbox/git`        | `/agentbox/git`        | git identity (`config`)     |
+| `/var/lib/agentbox/pnpm-store` | `/agentbox/pnpm-store` | pnpm package store          |
 
 The `security-audit` skill is installed in Claude Code's managed skills folder, `/etc/claude-code/.claude/skills/`, so it is in every session without touching the shared config.
 
-`agentbox new` creates these directories if they are missing. Feature 1.x kept them directly in `/home/devpod`; the first `agentbox new` with this CLI moves them and leaves symlinks, so sessions on `:1` keep working. The container user must be uid 1000, as `node` is in the Node images.
+`agentbox new` creates these directories if they are missing. The container user must be uid 1000, as `node` is in the Node images.
 
-A workspace can share its own state the same way: keep it in another directory under `/home/devpod/.agentbox` and add a `mounts` entry to its `devcontainer.json`. The directory must exist before the session is created, or Docker creates it empty and owned by root.
+A workspace can share its own state the same way: keep it in another directory under `/var/lib/agentbox` and add a `mounts` entry to its `devcontainer.json`. The directory must exist before the session is created, or Docker creates it empty and owned by root.
 
-`agentbox new` also installs Node and the Dev Container CLI under `/home/devpod/.agentbox/tools`, and clones each session's workspace repo into `/home/devpod/.agentbox/sessions/<id>`, mounted at `/workspaces/<id>`. A session's container carries the label `agentbox.session=<id>`.
-
-The CLI reaches the host as `ssh $AGENTBOX_MACHINE`, so that name must work as an SSH host on its own.
+`agentbox new` also installs Node and the Dev Container CLI under `/var/lib/agentbox/tools`, and clones each session's workspace repo into `/var/lib/agentbox/sessions/<id>`, mounted at `/workspaces/<id>`. A session's container carries the label `agentbox.session=<id>`.
 
 ### A host on Hetzner
 
-[DevPod](https://devpod.sh) and its [Hetzner provider](https://github.com/mrsimonemms/devpod-provider-hetzner) create the host; sessions don't use DevPod. The provider creates a server with a separate volume mounted at `/home/devpod`. Session clones and the shared logins live on that volume; containers and images live on the server's own disk.
+`agentbox host create` creates the host with [OpenTofu](https://opentofu.org) and the module in [`modules/hetzner`](modules/hetzner): a server with Docker and the `agentbox` user, a volume mounted at `/var/lib/agentbox`, and a firewall that lets in SSH only. Session clones and the shared logins live on the volume; containers and images live on the server's own disk.
+
+Create an API token with read and write access in the [Hetzner Console](https://console.hetzner.com), under your project's Security > API tokens, then:
 
 ```bash
-devpod provider add mrsimonemms/devpod-provider-hetzner --name hetzner \
-  -o TOKEN=<hetzner-cloud-api-token> \
-  -o REGION=nbg1 \
-  -o MACHINE_TYPE=cpx32 \
-  -o DISK_SIZE=50 \
-  -o INACTIVITY_TIMEOUT=8760h \
-  -o INJECT_GIT_CREDENTIALS=false
-devpod machine create agent-host --provider hetzner
+export HCLOUD_TOKEN=<token>
+agentbox host create box2 --provider hetzner
 ```
 
-| Option                         | Why                                                                                         |
-| ------------------------------ | ------------------------------------------------------------------------------------------- |
-| `MACHINE_TYPE=cpx32`           | 4 vCPU, 8 GB: room for a few sessions running installs and tests at once. Size up for more. |
-| `DISK_SIZE=50`                 | The `/home/devpod` volume: every session's clone, `node_modules` and the pnpm store.        |
-| `INACTIVITY_TIMEOUT=8760h`     | The default `10m` stops the machine while agents are still working. This is effectively never. |
-| `INJECT_GIT_CREDENTIALS=false` | Sessions use the forwarded SSH agent and the shared `gh` login instead.                     |
+The server is a `cpx32` (4 vCPU, 8 GB) in Nuremberg with a 50 GB volume. Each host keeps its OpenTofu state and its own SSH key in `~/.agentbox/hosts/<name>`; keep that directory, as it is what deletes the host later. `agentbox host create` refuses a name you already have.
 
-Then give the host a name SSH knows. The key is the one DevPod generated for the machine; the address is in the Hetzner console or `hcloud server list`.
+The CLI writes every host it creates, and the way into sessions, to `~/.ssh/agentbox.conf`, and puts `Include agentbox.conf` at the top of `~/.ssh/config`. `ssh box2` reaches the host, and `<id>.agentbox` a session.
+
+### A host you bring
+
+A host agentbox did not create needs a name SSH knows, as `ssh <name>` on its own. Pass it as `--host`, or set `AGENTBOX_MACHINE` for sessions created without one. Hosts created with DevPod keep their state in `/home/devpod/.agentbox`, and sessions on them need Feature `:2`.
+
+Every `<id>.agentbox` connection hops through the host, so give it a shared connection, as `agentbox host create` does:
 
 ```
-Host agent-host
-  HostName <server-ip>
-  User devpod
-  IdentityFile ~/.devpod/contexts/default/machines/agent-host/id_devpod_rsa
-  IdentitiesOnly yes
+Host my-host
   ControlMaster auto
   ControlPath ~/.ssh/cm/%r@%h:%p
   ControlPersist 30m
   ServerAliveInterval 20
 ```
 
-`ControlMaster` matters: every `<id>.agentbox` connection hops through this host, and reusing one connection makes opening a session near instant. Create the socket directory once with `mkdir -p ~/.ssh/cm`.
+Create the socket directory once with `mkdir -p ~/.ssh/cm`.
 
 ## A workspace
 
@@ -92,7 +83,7 @@ A workspace is a git repo whose `.devcontainer` uses the Feature and clones the 
   "features": {
     "ghcr.io/anthropics/devcontainer-features/claude-code:1": {},
     "ghcr.io/devcontainers/features/github-cli:1": {},
-    "ghcr.io/novibe-org/agentbox/agentbox:2": {}
+    "ghcr.io/novibe-org/agentbox/agentbox:3": {}
   },
   "postCreateCommand": "bash .devcontainer/setup.sh"
 }
@@ -120,33 +111,24 @@ Good habits for a workspace repo:
 
 ## The CLI
 
-Put `bin/agentbox` on your `PATH`, tell it which machine hosts sessions, and add this to `~/.ssh/config`:
+Install a release, and keep it on your `PATH`:
 
 ```bash
-export AGENTBOX_MACHINE=agent-host
+curl -fsSL https://raw.githubusercontent.com/novibe-org/agentbox/v0.1.0/bin/agentbox -o ~/.local/bin/agentbox
+chmod +x ~/.local/bin/agentbox
 ```
 
-```
-Host *.agentbox
-  User node
-  ProxyCommand agentbox proxy %h
-  ForwardAgent yes
-  StrictHostKeyChecking no
-  UserKnownHostsFile /dev/null
-  LogLevel error
-```
-
-`<id>.agentbox` goes straight into the session's container through the host, and starts the container first if it is stopped.
-
-Name the workspace repo, or run from inside a checkout of it:
+Name the host and the workspace repo, or run from inside a checkout of the repo:
 
 ```bash
-agentbox new fix-login myorg/workspace   # create a session and open it
-agentbox new fix-login                   # same, from this directory's origin
+agentbox new fix-login myorg/workspace --host box2   # create a session and open it
+agentbox new fix-login --host box2                   # same, from this directory's origin
 agentbox open fix-login  # reconnect
 agentbox ls
 agentbox rm fix-login
 ```
+
+`agentbox new` records each session's host in `~/.agentbox/sessions/<id>`, so `open`, `rm` and `<id>.agentbox` find it. `<id>.agentbox` goes straight into the session's container through the host, and starts the container first if it is stopped.
 
 `open` uses [cmux](https://cmux.dev) when run inside it, plain `ssh` otherwise.
 
@@ -156,13 +138,14 @@ Sessions created by an earlier agentbox are DevPod workspaces. `agentbox open` s
 
 | Variable           | Default                   | Meaning                                                                  |
 | ------------------ | ------------------------- | ------------------------------------------------------------------------ |
-| `AGENTBOX_MACHINE` | (required)                | SSH host that runs the sessions                                          |
+| `AGENTBOX_MACHINE` |                           | SSH host for sessions created without `--host`                           |
 | `AGENTBOX_REPO`    | this directory's `origin` | Workspace repo for `new`: a git URL, `owner/name` or `owner/name@branch` |
 | `AGENTBOX_PUBKEY`  | `~/.ssh/id_ed25519.pub`   | Public key authorized in each new session                                |
+| `HCLOUD_TOKEN`     |                           | API token of the Hetzner project hosts are created in                    |
+
+Sessions created before `--host` have no record and go to `AGENTBOX_MACHINE`. Some tools run `ProxyCommand` without your shell profile, so set it where they see it too, such as `launchctl setenv AGENTBOX_MACHINE agent-host` on macOS.
 
 `AGENTBOX_PUBKEY` must match the key SSH offers to `*.agentbox`. If you use another key, set both the variable and an `IdentityFile` with `IdentitiesOnly yes` in the `*.agentbox` block.
-
-Some tools run `ProxyCommand` without your shell profile. If `AGENTBOX_MACHINE` comes from `~/.zshrc`, put it in the proxy line too: `ProxyCommand env AGENTBOX_MACHINE=agent-host agentbox proxy %h`.
 
 ## Log in once
 
@@ -175,7 +158,7 @@ git config --global user.name  "Your Name"
 git config --global user.email "you@example.com"
 ```
 
-Deleting a session keeps them; only deleting the directories under `/home/devpod/.agentbox` on the host removes them.
+Deleting a session keeps them; only deleting the directories under `/var/lib/agentbox` on the host removes them.
 
 ## cmux
 
@@ -196,4 +179,4 @@ Set `"openTerminalLinksInCmuxBrowser": false` instead to send every link out, lo
 - **Let agents push branches, not `main`.** They act with your accounts; branch protection on your repos is the guard rail.
 - **Rebuild instead of repairing.** If a session's environment drifts, `agentbox rm` and `agentbox new` with the same id start clean from the workspace repo.
 - **Bring a stopped session back** with `agentbox open <id>`, which starts its container. Sessions without the restart policy stay down after the host reboots until then.
-- **Watch the disk.** `ssh agent-host df -h /home/devpod` shows the volume; `docker system prune` on the host clears old images after Feature updates.
+- **Watch the disk.** `ssh box2 df -h /var/lib/agentbox` shows the volume; `docker system prune` on the host clears old images after Feature updates.
