@@ -1,0 +1,42 @@
+views {
+  view context {
+    title 'System context'
+    include developer, agentbox, hetzner, github
+  }
+
+  view containers of agentbox {
+    title 'agentbox: building blocks'
+    include *
+  }
+
+  dynamic view createHost {
+    title 'Create a host on Hetzner, then a session on it'
+    developer -> agentbox.cli 'agentbox host create box2 --provider hetzner'
+    agentbox.cli -> agentbox.hostRegistry 'checks no host is named box2'
+    agentbox.cli -> agentbox.hetznerModule 'tofu apply'
+    agentbox.hetznerModule -> hetzner 'creates server, volume and firewall'
+    agentbox.cli -> agentbox.hostRegistry 'keeps box2\'s state'
+    agentbox.cli -> agentbox.sshConfig 'writes box2\'s entry'
+    developer -> agentbox.cli 'agentbox new fix-login acme/workspace --host box2'
+    agentbox.cli -> github 'clones acme/workspace on box2'
+    agentbox.cli -> agentbox.session 'builds and opens fix-login'
+  }
+
+  dynamic view refuseWithoutAccess {
+    title 'Refuse a host without Hetzner access'
+    developer -> agentbox.cli 'agentbox host create box2 --provider hetzner'
+    agentbox.cli -> developer 'needs an API token for a Hetzner project'
+  }
+
+  dynamic view refuseTakenName {
+    title 'Refuse a host name that is taken'
+    developer -> agentbox.cli 'agentbox host create box2 --provider hetzner'
+    agentbox.cli -> agentbox.hostRegistry 'finds a host named box2'
+    agentbox.cli -> developer 'host box2 already exists'
+  }
+
+  deployment view deployment {
+    title 'Deployment'
+    include devMachine, hetznerCloud, hetznerCloud.server
+  }
+}

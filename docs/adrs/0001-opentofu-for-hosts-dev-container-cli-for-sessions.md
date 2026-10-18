@@ -28,6 +28,8 @@ agentbox creates session hosts on several providers — Hetzner first, then loca
 
 Chosen option: "OpenTofu modules with the vendors' providers, and the Dev Container CLI", because both are the standards the other options are built on, with the infrastructure maintained by the vendors and the session lifecycle by the Dev Container spec's own CLI. agentbox ships one OpenTofu module per provider and the glue around the two: clones, labels, agent forwarding, the `~/.ssh` entries, the check for unpushed work.
 
+It shaped the views `containers`, `deployment` and `createHost`.
+
 ### Consequences
 
 * Good, because `hetznercloud/hcloud`, `tailscale/tailscale` and `hashicorp/aws` follow their APIs, and agentbox does not

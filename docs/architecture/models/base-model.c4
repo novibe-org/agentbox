@@ -1,0 +1,71 @@
+specification {
+  element person
+  element system
+  element external
+  element application
+  element library
+  element store
+  deploymentNode node
+}
+
+model {
+  developer = person 'Developer' {
+    description 'Runs coding agents in agentbox sessions.'
+  }
+
+  hetzner = external 'Hetzner Cloud' {
+    description 'Cloud provider that runs the host\'s server, volume and firewall.'
+  }
+
+  github = external 'GitHub' {
+    description 'Hosts the workspace repo and the repos it clones.'
+  }
+
+  agentbox = system 'agentbox' {
+    description 'Session hosts and one container per coding-agent session.'
+
+    cli = application 'CLI' {
+      description 'The agentbox command on the developer\'s machine.'
+      technology 'Bash, OpenTofu, Dev Container CLI'
+    }
+    hostRegistry = store 'Host registry' {
+      description 'One directory per host under ~/.agentbox/hosts, holding its OpenTofu state.'
+      technology 'OpenTofu state, encrypted'
+    }
+    sshConfig = store 'SSH config' {
+      description '~/.ssh/agentbox.conf: every host and the *.agentbox block, included from ~/.ssh/config.'
+    }
+    hetznerModule = library 'Hetzner module' {
+      description 'OpenTofu module for a host on Hetzner: server, volume, firewall and cloud-init.'
+      technology 'OpenTofu, hetznercloud/hcloud'
+    }
+    session = application 'Session' {
+      description 'One dev container per session, with its own clone of the workspace repo.'
+      technology 'Dev container, sshd'
+    }
+    feature = library 'Feature' {
+      description 'The devcontainer Feature ghcr.io/novibe-org/agentbox/agentbox.'
+    }
+
+    cli -> hostRegistry 'keeps each host\'s state in'
+    cli -> sshConfig 'writes each host\'s entry to'
+    cli -> hetznerModule 'applies, fetched by its release tag' {
+      technology 'OpenTofu'
+    }
+    cli -> session 'builds and connects to, through the host' {
+      technology 'SSH, Dev Container CLI'
+    }
+    session -> feature 'is built with'
+  }
+
+  developer -> agentbox.cli 'creates hosts and sessions with'
+  agentbox.hetznerModule -> hetzner 'creates the server, volume and firewall on' {
+    technology 'Hetzner Cloud API'
+  }
+  agentbox.cli -> github 'clones the workspace repo from, on the host' {
+    technology 'SSH, forwarded agent'
+  }
+  agentbox.session -> github 'clones the workspace\'s repos from' {
+    technology 'SSH, forwarded agent'
+  }
+}
