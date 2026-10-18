@@ -13,7 +13,7 @@ agentbox open <id>   open a session (in cmux when inside it, plain ssh otherwise
 agentbox ls          list sessions
 agentbox rm <id>     delete a session (refuses if work is not pushed)
 
-AGENTBOX_MACHINE  DevPod machine that hosts the sessions (required)
+AGENTBOX_MACHINE  SSH host that runs the sessions (required)
 AGENTBOX_REPO     workspace repo to create sessions from
 AGENTBOX_PUBKEY   key to authorize in new sessions (default: ~/.ssh/id_ed25519.pub)
 USAGE
@@ -21,18 +21,34 @@ USAGE
 }
 
 machine() {
-  [ -n "$MACHINE" ] || { echo "Set AGENTBOX_MACHINE to the DevPod machine that hosts sessions" >&2; exit 1; }
+  [ -n "$MACHINE" ] || { echo "Set AGENTBOX_MACHINE to the SSH host that runs sessions" >&2; exit 1; }
   echo "$MACHINE"
 }
 
-container() {
-  echo "\$(docker ps -q --filter volume=/workspaces/$1)"
+session_id() {
+  [[ $1 =~ ^[a-z0-9][a-z0-9-]*$ ]] || { echo "A session id is lowercase letters, digits and hyphens: $1" >&2; exit 1; }
+}
+
+# Runs the script on stdin on the host, with the remaining arguments as $1, $2, ...
+# The host functions below are defined first, so every script can use them.
+on_host() {
+  local m=$1; shift
+  { declare -f host_dc; cat; } | ssh "$m" "bash -s -- $(printf '%q ' "$@")"
+}
+
+# On the host: the Dev Container CLI, kept under .agentbox/tools. /home/devpod belongs
+# to root, as the volume's mount point, so npm's and Docker's state stay there too.
+host_dc() {
+  local t=/home/devpod/.agentbox/tools
+  PATH=$t/node/bin:$PATH DOCKER_CONFIG=$t/docker npm_config_cache=$t/npm \
+    "$t/node_modules/.bin/devcontainer" "$@" </dev/null
 }
 
 # Shared state lives under /home/devpod/.agentbox. Feature 1.x mounted it straight
-# from /home/devpod, so move it once and leave links for those sessions.
+# from /home/devpod, so move it once and leave links for those sessions. Then install
+# Node and the Dev Container CLI, and make room for the sessions' clones.
 prepare_host() {
-  ssh "$1" 'bash -s' <<'SH'
+  on_host "$1" <<'SH'
 set -euo pipefail
 for pair in claude-config:claude gh-config:gh git-config:git pnpm-store:pnpm-store; do
   old=/home/devpod/${pair%%:*} new=/home/devpod/.agentbox/${pair#*:}
@@ -42,6 +58,16 @@ for pair in claude-config:claude gh-config:gh git-config:git pnpm-store:pnpm-sto
   fi
   sudo install -d -o 1000 -g 1000 "$new"
 done
+t=/home/devpod/.agentbox/tools
+sudo install -d -o 1000 -g 1000 "$t" /home/devpod/.agentbox/sessions
+cd "$t"
+if [ ! -x node/bin/node ]; then
+  curl -fsSL https://nodejs.org/dist/v22.12.0/node-v22.12.0-linux-x64.tar.xz | tar xJ
+  mv node-v22.12.0-linux-x64 node
+fi
+if [ "$(host_dc --version 2>/dev/null)" != 0.89.0 ]; then
+  PATH=$t/node/bin:$PATH npm_config_cache=$t/npm npm i -s --prefix "$t" @devcontainers/cli@0.89.0
+fi
 SH
 }
 
@@ -56,6 +82,12 @@ repo_url() {
   esac
 }
 
+# A session's container carries the label agentbox.session=<id>. Sessions created
+# with DevPod have none; they are found by their workspace volume instead.
+container() {
+  echo "\$(docker ps -aq --filter label=agentbox.session=$1 | head -1)"
+}
+
 open_session() {
   if [ -n "${CMUX_SOCKET_PATH:-}" ]; then
     exec cmux ssh "$1.agentbox" -A --name "$1"
@@ -67,22 +99,56 @@ cmd=${1:-}; id=${2:-}
 case "$cmd" in
   new)
     [ -n "$id" ] || usage
+    session_id "$id"
     m=$(machine)
     repo=$(repo_url "${3:-${AGENTBOX_REPO:-$(git remote get-url origin)}}")
+    branch=
+    case "$repo" in *.git@*) branch=${repo##*.git@}; repo=${repo%@"$branch"} ;; esac
     prepare_host "$m"
-    devpod up "$repo" --id "$id" --machine "$m" --ide none --disable-daemon
+
+    # Clone on the host with the forwarded agent. A shared ControlMaster connection
+    # may have been opened without forwarding, so this one gets its own.
+    { declare -f host_dc; cat; } <<'SH' | ssh -A -o ControlPath=none "$m" "bash -s -- $(printf '%q ' "$id" "$repo" "$branch")"
+set -euo pipefail
+d=/home/devpod/.agentbox/sessions/$1
+[ -d "$d/.git" ] || GIT_SSH_COMMAND="ssh -o StrictHostKeyChecking=accept-new" git clone -q ${3:+-b "$3"} "$2" "$d"
+host_dc up --workspace-folder "$d" --id-label "agentbox.session=$1" --skip-post-create >/dev/null
+SH
     ssh "$m" "docker exec -i -u 1000 $(container "$id") sh -c 'mkdir -p ~/.ssh && cat >> ~/.ssh/authorized_keys'" < "$PUBKEY"
+
+    # The workspace's lifecycle commands (setup.sh) clone over SSH and need the agent.
+    # Hold one forwarding connection into the session open while they run, and point
+    # them at its socket; a socket mounted from the host would be gone after a restart.
+    ssh -n -A "$id.agentbox" 'ln -sfn "$SSH_AUTH_SOCK" /tmp/agentbox-agent.sock && exec sleep 3600' &
+    holder=$!
+    trap 'kill $holder 2>/dev/null || true' EXIT
+    for _ in $(seq 40); do
+      ssh "$m" "docker exec $(container "$id") test -S /tmp/agentbox-agent.sock" && break
+      sleep 0.5
+    done
+    on_host "$m" "$id" <<'SH'
+set -euo pipefail
+host_dc run-user-commands --workspace-folder "/home/devpod/.agentbox/sessions/$1" \
+  --id-label "agentbox.session=$1" --remote-env SSH_AUTH_SOCK=/tmp/agentbox-agent.sock >/dev/null
+SH
+    kill $holder 2>/dev/null || true
+    trap - EXIT
     open_session "$id"
     ;;
   open)
     [ -n "$id" ] || usage
+    session_id "$id"
     open_session "$id"
     ;;
   ls)
-    devpod list
+    on_host "$(machine)" <<'SH'
+docker ps -a --filter label=agentbox.session --format '{{.Label "agentbox.session"}}\t{{.Status}}'
+SH
     ;;
   rm)
     [ -n "$id" ] || usage
+    session_id "$id"
+    m=$(machine)
     dirty=$(ssh "$id.agentbox" 'cd /workspaces/'"$id"' && for r in . projects/*; do
       [ -d "$r/.git" ] || continue
       s=$(git -C "$r" status --porcelain); u=$(git -C "$r" log --branches --not --remotes --oneline)
@@ -93,11 +159,24 @@ case "$cmd" in
       echo "$dirty" >&2
       exit 1
     fi
-    devpod delete "$id" --force
+    on_host "$m" "$id" <<'SH'
+set -euo pipefail
+c=$(docker ps -aq --filter "label=agentbox.session=$1" | head -1)
+if [ -z "$c" ]; then
+  echo "$1 has no agentbox container. A session created with DevPod goes with: devpod delete $1 --force" >&2
+  exit 1
+fi
+img=$(docker inspect -f '{{.Image}}' "$c")
+docker rm -f "$c" >/dev/null
+docker rmi "$img" >/dev/null 2>&1 || true
+rm -rf "/home/devpod/.agentbox/sessions/$1"
+SH
     ;;
   proxy)
     id=${id%.agentbox}
-    exec ssh "$(machine)" "docker exec -i -u root $(container "$id") sh -c 'mkdir -p /run/sshd && exec /usr/sbin/sshd -i'"
+    session_id "$id"
+    # Start the container if the host rebooted without it, then hand the connection to sshd.
+    exec ssh "$(machine)" "c=$(container "$id"); [ -n \"\$c\" ] || c=\$(docker ps -aq --filter volume=/workspaces/$id | head -1); docker start \$c >/dev/null && exec docker exec -i -u root \$c sh -c 'mkdir -p /run/sshd && exec /usr/sbin/sshd -i'"
     ;;
   *)
     usage

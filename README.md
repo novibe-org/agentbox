@@ -2,7 +2,7 @@
 
 # agentbox
 
-One container per coding-agent session, on a remote Docker host managed by [DevPod](https://devpod.sh). Each session gets its own clone of a workspace repo; you reach it over SSH straight into the container.
+One container per coding-agent session, on a remote Docker host, built with the [Dev Container CLI](https://github.com/devcontainers/cli). Each session gets its own clone of a workspace repo; you reach it over SSH straight into the container.
 
 agentbox is two things:
 
@@ -22,7 +22,7 @@ Sessions are isolated from each other and from your laptop, not from your accoun
 
 ## The session host
 
-Any x86_64 Docker host registered as a DevPod machine. Shared state lives under `/home/devpod/.agentbox` on the host, owned by uid 1000, and is mounted into every session:
+Any x86_64 Docker host you reach over SSH as a user with passwordless `sudo` in the `docker` group. Shared state lives under `/home/devpod/.agentbox` on the host, owned by uid 1000, and is mounted into every session:
 
 | Host                                | Container              | Holds                       |
 | ----------------------------------- | ---------------------- | --------------------------- |
@@ -37,11 +37,13 @@ The `security-audit` skill is installed in Claude Code's managed skills folder, 
 
 A workspace can share its own state the same way: keep it in another directory under `/home/devpod/.agentbox` and add a `mounts` entry to its `devcontainer.json`. The directory must exist before the session is created, or Docker creates it empty and owned by root.
 
+`agentbox new` also installs Node and the Dev Container CLI under `/home/devpod/.agentbox/tools`, and clones each session's workspace repo into `/home/devpod/.agentbox/sessions/<id>`, mounted at `/workspaces/<id>`. A session's container carries the label `agentbox.session=<id>`.
+
 The CLI reaches the host as `ssh $AGENTBOX_MACHINE`, so that name must work as an SSH host on its own.
 
 ### A host on Hetzner
 
-The [Hetzner provider](https://github.com/mrsimonemms/devpod-provider-hetzner) creates a server with a separate volume mounted at `/home/devpod`. Session clones and the shared logins live on that volume; containers and images live on the server's own disk.
+[DevPod](https://devpod.sh) and its [Hetzner provider](https://github.com/mrsimonemms/devpod-provider-hetzner) create the host; sessions don't use DevPod. The provider creates a server with a separate volume mounted at `/home/devpod`. Session clones and the shared logins live on that volume; containers and images live on the server's own disk.
 
 ```bash
 devpod provider add mrsimonemms/devpod-provider-hetzner --name hetzner \
@@ -134,7 +136,7 @@ Host *.agentbox
   LogLevel error
 ```
 
-`<id>.agentbox` goes straight into the session's container through the host, bypassing DevPod's slower SSH path.
+`<id>.agentbox` goes straight into the session's container through the host, and starts the container first if it is stopped.
 
 Name the workspace repo, or run from inside a checkout of it:
 
@@ -148,11 +150,13 @@ agentbox rm fix-login
 
 `open` uses [cmux](https://cmux.dev) when run inside it, plain `ssh` otherwise.
 
+Sessions created by an earlier agentbox are DevPod workspaces. `agentbox open` still reaches them; `devpod list` lists them and `devpod delete <id> --force` deletes them.
+
 ### Configuration
 
 | Variable           | Default                   | Meaning                                                                  |
 | ------------------ | ------------------------- | ------------------------------------------------------------------------ |
-| `AGENTBOX_MACHINE` | (required)                | DevPod machine, and SSH host, that runs the sessions                     |
+| `AGENTBOX_MACHINE` | (required)                | SSH host that runs the sessions                                          |
 | `AGENTBOX_REPO`    | this directory's `origin` | Workspace repo for `new`: a git URL, `owner/name` or `owner/name@branch` |
 | `AGENTBOX_PUBKEY`  | `~/.ssh/id_ed25519.pub`   | Public key authorized in each new session                                |
 
@@ -191,5 +195,5 @@ Set `"openTerminalLinksInCmuxBrowser": false` instead to send every link out, lo
 - **Push before you leave a session.** `rm` refuses to delete unpushed work, but losing the host loses it.
 - **Let agents push branches, not `main`.** They act with your accounts; branch protection on your repos is the guard rail.
 - **Rebuild instead of repairing.** If a session's environment drifts, `agentbox rm` and `agentbox new` with the same id start clean from the workspace repo.
-- **Bring a stopped session back** with `devpod up <id> --ide none`, then `agentbox open <id>`. Sessions without the restart policy stay down after the host reboots.
+- **Bring a stopped session back** with `agentbox open <id>`, which starts its container. Sessions without the restart policy stay down after the host reboots until then.
 - **Watch the disk.** `ssh agent-host df -h /home/devpod` shows the volume; `docker system prune` on the host clears old images after Feature updates.
