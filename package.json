@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "bun build cli/main.ts --compile --outfile dist/agentbox",
+    "build": "bun build cli/main.ts --compile --outfile dist/agentbox && bun build agentboxd/main.ts --compile --outfile dist/agentboxd",
     "typecheck": "tsc",
     "test": "cucumber-js"
   },

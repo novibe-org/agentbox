@@ -2,10 +2,11 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node
 import { join } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { version } from '../package.json'
-import rotateHostKeyScript from './host/rotate-host-key.sh' with { type: 'text' }
-import { hostName } from './names.ts'
+import type { Health } from '../lib/api.ts'
+import { hostName } from '../lib/names.ts'
+import { fail, onPath, run, succeeds } from '../lib/process.ts'
+import { request } from './client.ts'
 import { hosts } from './paths.ts'
-import { fail, onPath, run, succeeds } from './process.ts'
 import { writeSshConfig } from './ssh.ts'
 
 export const providers = ['hetzner']
@@ -37,6 +38,7 @@ export async function createHost(name: string, _provider: string): Promise<void>
   ssh_public_key = file("\${path.module}/id_ed25519.pub")
   host_key       = file("\${path.module}/ssh_host_ed25519_key")
   host_key_pub   = file("\${path.module}/ssh_host_ed25519_key.pub")
+  release        = "${version}"
 }
 
 output "ipv4" {
@@ -67,11 +69,13 @@ output "ipv4" {
   )
   writeSshConfig()
 
-  // The server answers SSH before cloud-init has mounted the volume and set up Docker.
-  // A shared connection opened that early would keep the user's groups from before.
+  // The server answers SSH before cloud-init has set it up and started agentboxd, which
+  // reports when the host can run sessions. Until the host key is rotated, no connection
+  // is shared.
+  const once = ['-o', 'ConnectTimeout=5', '-o', 'ControlPath=none']
   for (let i = 0; i < 60; i++) {
-    const ready = ['-o', 'ConnectTimeout=5', '-o', 'ControlPath=none', name, 'mountpoint -q /var/lib/agentbox && docker info']
-    if (succeeds('ssh', ready, { stderr: 'ignore' })) {
+    const health = await request<Health>(name, 'GET', '/health', undefined, once).catch(() => undefined)
+    if (health?.body?.status === 'pass') {
       await rotateHostKey(name, d)
       console.log(`Host ${name} is ready: agentbox new <id> <repo> --host ${name}`)
       return
@@ -81,8 +85,19 @@ output "ipv4" {
   fail(`Host ${name} was created but is not ready after 5 minutes: ssh ${name} to look`)
 }
 
+// Replaces the host key that went through cloud-init, whose data stays readable on the
+// server, and prints the new public key.
+const rotation = `set -euo pipefail
+k=/etc/ssh/ssh_host_ed25519_key
+rm -f "$k.new" "$k.new.pub"
+ssh-keygen -q -t ed25519 -N '' -C '' -f "$k.new"
+mv "$k.new" "$k" && mv "$k.new.pub" "$k.pub"
+if [ -s /run/sshd.pid ]; then kill -HUP "$(cat /run/sshd.pid)"; else systemctl reload ssh; fi
+cut -d' ' -f1,2 "$k.pub"
+`
+
 async function rotateHostKey(name: string, d: string): Promise<void> {
-  const key = run('ssh', ['-o', 'ControlPath=none', name, 'sudo bash -s'], { input: rotateHostKeyScript }).trim()
+  const key = run('ssh', ['-o', 'ControlPath=none', name, 'sudo bash -s'], { input: rotation }).trim()
   if (!/^ssh-ed25519 [A-Za-z0-9+/]+=*$/.test(key)) fail(`Host ${name} gave no new host key: ${key}`)
   writeFileSync(join(d, 'known_hosts'), `${name} ${key}\n`)
   rmSync(join(d, 'ssh_host_ed25519_key'), { force: true })

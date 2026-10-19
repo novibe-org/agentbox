@@ -54,7 +54,10 @@ git config --system interactive.diffFilter "delta --color-only"
 git config --system delta.navigate true
 git config --system delta.line-numbers true
 git config --system merge.conflictStyle zdiff3
-git config --system url."git@github.com:".insteadOf "https://github.com/"
+# GitHub over HTTPS with the shared GitHub login, so setup and pushes need no forwarded agent.
+git config --system url."https://github.com/".insteadOf "git@github.com:"
+git config --system --add url."https://github.com/".insteadOf "ssh://git@github.com/"
+git config --system credential."https://github.com".helper '!f() { command -v gh >/dev/null || exit 0; exec gh auth git-credential "$@"; }; f'
 ssh-keyscan -t ed25519 github.com >> /etc/ssh/ssh_known_hosts 2>/dev/null
 
 mkdir -p "$USER_HOME/.config/lazygit" "$USER_HOME/.ssh"

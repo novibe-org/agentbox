@@ -1,11 +1,11 @@
 import { Command, Option } from 'commander'
 import { version } from '../package.json'
 import { createHost, providers } from './host.ts'
-import { Exit } from './process.ts'
+import { Exit } from '../lib/process.ts'
 import { listSessions, newSession, openExisting, proxy, removeSession } from './session.ts'
 
 const program = new Command('agentbox')
-  .description('One container per coding-agent session, on a remote Docker host.')
+  .description('One container per coding-agent session, on a host of your own.')
   .version(version)
   .addHelpText(
     'after',

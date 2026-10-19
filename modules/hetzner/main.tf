@@ -43,6 +43,7 @@ resource "hcloud_server" "host" {
     volume_id      = hcloud_volume.state.id
     host_key       = trimspace(var.host_key)
     host_key_pub   = trimspace(var.host_key_pub)
+    release        = var.release
   })
 }
 

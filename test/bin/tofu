@@ -2,6 +2,7 @@
 # Stands in for tofu running the Hetzner module: apply starts a test host container
 # named after the host's directory, and output gives its address.
 set -euo pipefail
+repo=$(cd "$(dirname "$0")/../.." && pwd)
 d=${1#-chdir=}
 c=agentbox-test-$(basename "$d")
 case $2 in
@@ -11,6 +12,7 @@ case $2 in
       -e AUTHORIZED_KEY="$(cat "$d/id_ed25519.pub")" \
       -e HOST_KEY="$(cat "$d/ssh_host_ed25519_key")" \
       -v /var/run/docker.sock:/var/run/docker.sock \
+      -v "$repo/dist/agentboxd:/usr/local/bin/agentboxd:ro" \
       -v /var/lib/agentbox:/var/lib/agentbox \
       -v "$AGENTBOX_TEST_FIXTURES:$AGENTBOX_TEST_FIXTURES:ro" \
       agentbox-test-host >/dev/null

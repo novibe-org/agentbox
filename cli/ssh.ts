@@ -1,20 +1,6 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import functions from './host/functions.sh' with { type: 'text' }
 import { home, hosts } from './paths.ts'
-import { quote, run } from './process.ts'
-
-// Runs the script on the host with the arguments as $1, $2, ...; the functions in
-// host/functions.sh are defined first, so every script can use them.
-export function onHost(host: string, script: string, args: string[] = [], { forwardAgent = false } = {}): void {
-  // A shared ControlMaster connection may have been opened without forwarding, so a
-  // forwarding one gets its own.
-  const options = forwardAgent ? ['-A', '-o', 'ControlPath=none'] : []
-  run('ssh', [...options, host, `bash -s -- ${args.map(quote).join(' ')}`], {
-    input: `${functions}\n${script}`,
-    stdout: 'inherit',
-  })
-}
 
 const sessionsBlock = `Host *.agentbox
   User node

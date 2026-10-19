@@ -11,6 +11,7 @@ const home = homedir()
 const fixtures = mkdtempSync(join(tmpdir(), 'agentbox-fixtures-'))
 chmodSync(fixtures, 0o755)
 const workspace = `file://${fixtures}/acme/workspace.git`
+const app = `file://${fixtures}/acme/app.git`
 let agent
 
 // The scenarios create hosts from the real ~/.agentbox and ~/.ssh, since ssh reads
@@ -27,19 +28,42 @@ BeforeAll(() => {
   )
   execFileSync('ssh-add', ['-q', key], { env: { ...process.env, ...agent } })
 
-  const tree = join(fixtures, 'tree')
-  mkdirSync(join(tree, '.devcontainer'), { recursive: true })
-  cpSync(join(repo, 'src/agentbox'), join(tree, '.devcontainer/agentbox'), { recursive: true })
-  writeFileSync(
-    join(tree, '.devcontainer/devcontainer.json'),
-    JSON.stringify({ image: 'node:22-bookworm-slim', remoteUser: 'node', features: { './agentbox': {} } }, null, 2),
-  )
+  // acme/app, a project the workspace's setup clones, and acme/workspace itself. Sessions
+  // see the fixtures at the same path, as the test host does.
+  repository('acme/app', { 'README.md': '# acme app\n' })
+  repository('acme/workspace', {
+    '.devcontainer/devcontainer.json': JSON.stringify(
+      {
+        image: 'node:22-bookworm-slim',
+        remoteUser: 'node',
+        features: { './agentbox': {} },
+        mounts: [{ source: fixtures, target: fixtures, type: 'bind' }],
+        postCreateCommand: 'bash .devcontainer/setup.sh',
+      },
+      null,
+      2,
+    ),
+    // The fixtures belong to the test runner's user, not the session's.
+    '.devcontainer/setup.sh': `[ -d projects/app/.git ] || git -c safe.directory='*' clone -q ${app} projects/app\n`,
+    '.gitignore': 'projects/\n',
+  })
+})
+
+// A bare repo at <fixtures>/<name>.git with the files in one commit; the workspace also
+// carries the Feature under test.
+function repository(name, files) {
+  const tree = join(fixtures, 'tree', name)
+  for (const [path, content] of Object.entries(files)) {
+    mkdirSync(join(tree, path, '..'), { recursive: true })
+    writeFileSync(join(tree, path), content)
+  }
+  if (name === 'acme/workspace') cpSync(join(repo, 'src/agentbox'), join(tree, '.devcontainer/agentbox'), { recursive: true })
   const git = (...args) => execFileSync('git', args, { cwd: tree })
   git('init', '-q', '-b', 'main')
   git('add', '.')
-  git('-c', 'user.name=acme', '-c', 'user.email=dev@acme.test', 'commit', '-q', '-m', 'Workspace')
-  execFileSync('git', ['clone', '-q', '--bare', tree, join(fixtures, 'acme/workspace.git')])
-})
+  git('-c', 'user.name=acme', '-c', 'user.email=dev@acme.test', 'commit', '-q', '-m', name)
+  execFileSync('git', ['clone', '-q', '--bare', tree, join(fixtures, `${name}.git`)])
+}
 
 AfterAll(() => {
   if (agent) execFileSync('ssh-agent', ['-k'], { env: { ...process.env, ...agent }, stdio: 'ignore' })
@@ -63,6 +87,7 @@ After(reset)
 class World {
   constructor() {
     this.workspace = workspace
+    this.app = app
     this.env = {
       ...process.env,
       ...agent,

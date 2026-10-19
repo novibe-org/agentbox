@@ -1,6 +1,6 @@
 {
   "id": "agentbox",
-  "version": "3.0.0",
+  "version": "3.1.0",
   "name": "agentbox",
   "description": "A container per coding-agent session: sshd, helix, yazi, lazygit, delta, Cloudflare's security-audit skill, and the session state shared from the host.",
   "documentationURL": "https://github.com/novibe-org/agentbox",

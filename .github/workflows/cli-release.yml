@@ -3,7 +3,7 @@ name: cli release
 on:
   push:
     branches: [main]
-    paths: [cli/**, modules/**, package.json, package-lock.json]
+    paths: [cli/**, agentboxd/**, lib/**, modules/**, package.json, package-lock.json]
 
 jobs:
   release:
@@ -17,7 +17,7 @@ jobs:
         with:
           node-version: 22
           cache: npm
-      # The CLI fetches its modules at the tag of its own version.
+      # The CLI fetches its modules, and hosts their agentboxd, at the tag of its own version.
       - id: version
         run: |
           tag=v$(node -p 'require("./package.json").version')
@@ -30,11 +30,12 @@ jobs:
           for target in darwin-arm64 darwin-x64 linux-x64; do
             npx bun build cli/main.ts --compile --target="bun-$target" --outfile "dist/agentbox-$target"
           done
+          npx bun build agentboxd/main.ts --compile --target=bun-linux-x64 --outfile dist/agentboxd-linux-x64
           # Apple silicon runs signed binaries only; an ad hoc signature is enough.
           codesign --force --sign - dist/agentbox-darwin-arm64 dist/agentbox-darwin-x64
           dist/agentbox-darwin-arm64 --version
       - if: steps.version.outputs.new == 'true'
-        run: gh release create "$TAG" dist/agentbox-* --target "$GITHUB_SHA" --title "$TAG" --generate-notes
+        run: gh release create "$TAG" dist/agentbox-* dist/agentboxd-linux-x64 --target "$GITHUB_SHA" --title "$TAG" --generate-notes
         env:
           TAG: ${{ steps.version.outputs.tag }}
           GH_TOKEN: ${{ github.token }}
