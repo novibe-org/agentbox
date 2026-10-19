@@ -14,7 +14,7 @@ jobs:
       packages: write
     steps:
       - uses: actions/checkout@v4
-      - uses: devcontainers/action@v1
+      - uses: devcontainers/action@bef2cf2d1a019b00b45e184f83035e01bd1972f3 # v1
         with:
           publish-features: "true"
           base-path-to-features: ./src

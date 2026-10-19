@@ -1,0 +1,20 @@
+name: cli release
+
+on:
+  push:
+    branches: [main]
+    paths: [bin/agentbox, modules/**]
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      # The CLI fetches its modules at the tag of its own VERSION.
+      - run: |
+          v=v$(sed -n 's/^VERSION=//p' bin/agentbox)
+          git ls-remote --exit-code --tags origin "refs/tags/$v" >/dev/null && exit 0
+          git tag "$v"
+          git push origin "$v"

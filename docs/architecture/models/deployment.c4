@@ -1,0 +1,14 @@
+deployment {
+  node devMachine 'Developer machine' {
+    instanceOf agentbox.cli
+    instanceOf agentbox.hostRegistry
+    instanceOf agentbox.sessionRegistry
+    instanceOf agentbox.sshConfig
+  }
+  node hetznerCloud 'Hetzner Cloud' {
+    node server 'Host' {
+      description 'Server with the agentbox user, Docker and its volume at /var/lib/agentbox, set up by the Hetzner module\'s cloud-init; the CLI adds Node and the Dev Container CLI.'
+      instanceOf agentbox.session
+    }
+  }
+}
