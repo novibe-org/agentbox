@@ -41,6 +41,8 @@ resource "hcloud_server" "host" {
   user_data = templatefile("${path.module}/cloud-init.yaml.tftpl", {
     ssh_public_key = trimspace(var.ssh_public_key)
     volume_id      = hcloud_volume.state.id
+    host_key       = trimspace(var.host_key)
+    host_key_pub   = trimspace(var.host_key_pub)
   })
 }
 

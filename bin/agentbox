@@ -164,11 +164,17 @@ host_create() {
 
   mkdir -p "$d"
   ssh-keygen -q -t ed25519 -N '' -C "agentbox-$name" -f "$d/id_ed25519"
+  # The server's first host key is made here, so the first connection is already
+  # pinned; it is replaced once that connection works, as cloud-init data stays readable.
+  ssh-keygen -q -t ed25519 -N '' -C '' -f "$d/ssh_host_ed25519_key"
+  echo "$name $(cut -d' ' -f1,2 "$d/ssh_host_ed25519_key.pub")" > "$d/known_hosts"
   cat > "$d/main.tf" <<TF
 module "host" {
   source         = "git::https://github.com/novibe-org/agentbox.git//modules/hetzner?ref=v$VERSION"
   name           = "$name"
   ssh_public_key = file("\${path.module}/id_ed25519.pub")
+  host_key       = file("\${path.module}/ssh_host_ed25519_key")
+  host_key_pub   = file("\${path.module}/ssh_host_ed25519_key.pub")
 }
 
 output "ipv4" {
@@ -179,13 +185,16 @@ TF
   tofu -chdir="$d" apply -input=false -auto-approve >/dev/null
   local ip
   ip=$(tofu -chdir="$d" output -raw ipv4)
+  [[ $ip =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "OpenTofu gave no IPv4 address for $name: $ip" >&2; exit 1; }
   cat > "$d/ssh_config" <<CONF
 Host $name
   HostName $ip
   User agentbox
   IdentityFile $d/id_ed25519
   IdentitiesOnly yes
-  StrictHostKeyChecking accept-new
+  HostKeyAlias $name
+  UserKnownHostsFile $d/known_hosts
+  StrictHostKeyChecking yes
   ControlMaster auto
   ControlPath ~/.ssh/cm/%r@%h:%p
   ControlPersist 30m
@@ -197,13 +206,37 @@ CONF
   # The server answers SSH before cloud-init has mounted the volume and set up Docker.
   # A shared connection opened that early would keep the user's groups from before.
   for _ in $(seq 60); do
-    ssh -o ConnectTimeout=5 -o ControlPath=none "$name" 'mountpoint -q /var/lib/agentbox && docker info' >/dev/null 2>&1 && {
+    if ssh -o ConnectTimeout=5 -o ControlPath=none "$name" 'mountpoint -q /var/lib/agentbox && docker info' >/dev/null 2>&1; then
+      rotate_host_key "$name" "$d"
       echo "Host $name is ready: agentbox new <id> <repo> --host $name"
       return
-    }
+    fi
     sleep 5
   done
   echo "Host $name was created but is not ready after 5 minutes: ssh $name to look" >&2
+  exit 1
+}
+
+rotate_host_key() {
+  local key
+  key=$(ssh -o ControlPath=none "$1" 'sudo bash -s' <<'SH'
+set -euo pipefail
+k=/etc/ssh/ssh_host_ed25519_key
+rm -f "$k.new" "$k.new.pub"
+ssh-keygen -q -t ed25519 -N '' -C '' -f "$k.new"
+mv "$k.new" "$k" && mv "$k.new.pub" "$k.pub"
+if [ -s /run/sshd.pid ]; then kill -HUP "$(cat /run/sshd.pid)"; else systemctl reload ssh; fi
+cut -d' ' -f1,2 "$k.pub"
+SH
+  )
+  [[ $key =~ ^ssh-ed25519\ [A-Za-z0-9+/]+=*$ ]] || { echo "Host $1 gave no new host key: $key" >&2; exit 1; }
+  echo "$1 $key" > "$2/known_hosts"
+  rm -f "$2/ssh_host_ed25519_key" "$2/ssh_host_ed25519_key.pub"
+  for _ in $(seq 10); do
+    ssh -o ConnectTimeout=5 -o ControlPath=none "$1" true 2>/dev/null && return
+    sleep 1
+  done
+  echo "Host $1 does not answer with its new host key: ssh $1 to look" >&2
   exit 1
 }
 

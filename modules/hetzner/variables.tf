@@ -8,6 +8,17 @@ variable "ssh_public_key" {
   type        = string
 }
 
+variable "host_key" {
+  description = "The server's first ed25519 host key, which the CLI replaces after its first connection"
+  type        = string
+  sensitive   = true
+}
+
+variable "host_key_pub" {
+  description = "Public half of host_key"
+  type        = string
+}
+
 variable "server_type" {
   description = "Hetzner server type"
   type        = string
