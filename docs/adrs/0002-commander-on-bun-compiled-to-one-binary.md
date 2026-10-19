@@ -29,7 +29,7 @@ The CLI is a Bash script of some 360 lines that parses its own arguments and gro
 
 ## Decision Outcome
 
-Chosen option: "Commander on Bun, compiled to one binary per platform", because Commander is the most used argument parser for JavaScript and covers what agentbox needs, and `bun build --compile` turns the CLI into one file that installs with `curl` and starts in milliseconds. The CLI is TypeScript against `node:` APIs only, with the host's scripts embedded as text imports, so moving to Node changes the build, not the code. What runs on the host, such as installing the tools and rotating the host key, stays shell that the CLI sends over SSH.
+Chosen option: "Commander on Bun, compiled to one binary per platform", because Commander is the most used argument parser for JavaScript and covers what agentbox needs, and `bun build --compile` turns the CLI into one file that installs with `curl` and starts in milliseconds. The CLI is TypeScript against `node:` APIs only, so moving to Node changes the build, not the code.
 
 It shaped the views `containers` and `deployment`.
 
