@@ -43,10 +43,11 @@ BeforeAll(() => {
       null,
       2,
     ),
-    // The fixtures belong to the test runner's user, not the session's.
-    '.devcontainer/setup.sh': `[ -d projects/app/.git ] || git -c safe.directory='*' clone -q ${app} projects/app\n`,
+    '.devcontainer/setup.sh': `[ -d projects/app/.git ] || git clone -q ${app} projects/app\n`,
     '.gitignore': 'projects/\n',
   })
+  // git in a session clones only from repos its own user, uid 1000, owns.
+  execFileSync('sudo', ['chown', '-R', '1000:1000', fixtures])
 })
 
 // A bare repo at <fixtures>/<name>.git with the files in one commit; the workspace also
@@ -67,7 +68,7 @@ function repository(name, files) {
 
 AfterAll(() => {
   if (agent) execFileSync('ssh-agent', ['-k'], { env: { ...process.env, ...agent }, stdio: 'ignore' })
-  rmSync(fixtures, { recursive: true, force: true })
+  execFileSync('sudo', ['rm', '-rf', fixtures])
 })
 
 function reset() {
