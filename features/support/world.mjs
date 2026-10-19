@@ -66,7 +66,7 @@ class World {
     this.env = {
       ...process.env,
       ...agent,
-      PATH: `${repo}/test/bin:${repo}/bin:${process.env.PATH}`,
+      PATH: `${repo}/test/bin:${repo}/dist:${process.env.PATH}`,
       HCLOUD_TOKEN: 'test-token',
       AGENTBOX_TEST_FIXTURES: fixtures,
     }

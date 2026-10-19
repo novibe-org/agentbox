@@ -7,7 +7,7 @@ One container per coding-agent session, on a remote Docker host, built with the 
 agentbox is two things:
 
 - **A devcontainer Feature**, `ghcr.io/novibe-org/agentbox/agentbox`: sshd, helix, yazi, lazygit, delta, ripgrep, Cloudflare's [security-audit](https://github.com/cloudflare/security-audit-skill) skill, and the mounts that share session state across containers.
-- **A CLI**, `bin/agentbox`, that creates, opens, lists and deletes sessions from your machine.
+- **A CLI**, `agentbox`, that creates hosts and creates, opens, lists and deletes sessions from your machine.
 
 ## Isolation
 
@@ -114,9 +114,13 @@ Good habits for a workspace repo:
 Install a release, and keep it on your `PATH`:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/novibe-org/agentbox/v0.1.0/bin/agentbox -o ~/.local/bin/agentbox
+curl -fsSL https://github.com/novibe-org/agentbox/releases/download/v0.2.0/agentbox-darwin-arm64 -o ~/.local/bin/agentbox
 chmod +x ~/.local/bin/agentbox
 ```
+
+The CLI is one binary with nothing else to install: `agentbox-darwin-arm64` for Apple silicon, `agentbox-darwin-x64` for Intel Macs, `agentbox-linux-x64` for Linux. `agentbox --help` lists the commands.
+
+It is written in TypeScript with [Commander](https://github.com/tj/commander.js) and compiled with [Bun](https://bun.sh); see [ADR 0002](docs/adrs/0002-commander-on-bun-compiled-to-one-binary.md). `npm ci && npm run build` builds it from a checkout into `dist/agentbox`.
 
 Name the host and the workspace repo, or run from inside a checkout of the repo:
 

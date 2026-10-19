@@ -29,7 +29,7 @@ The CLI is a Bash script of some 360 lines that parses its own arguments and gro
 
 ## Decision Outcome
 
-Chosen option: "Commander on Bun, compiled to one binary per platform", because Commander is the most used argument parser for JavaScript and covers what agentbox needs, and `bun build --compile` turns the CLI into one file that installs with `curl` and starts in milliseconds. The CLI is TypeScript against `node:` APIs only, so moving to Node changes the build, not the code. What runs on the host, such as installing the tools and rotating the host key, stays shell that the CLI sends over SSH.
+Chosen option: "Commander on Bun, compiled to one binary per platform", because Commander is the most used argument parser for JavaScript and covers what agentbox needs, and `bun build --compile` turns the CLI into one file that installs with `curl` and starts in milliseconds. The CLI is TypeScript against `node:` APIs only, with the host's scripts embedded as text imports, so moving to Node changes the build, not the code. What runs on the host, such as installing the tools and rotating the host key, stays shell that the CLI sends over SSH.
 
 It shaped the views `containers` and `deployment`.
 
@@ -38,7 +38,7 @@ It shaped the views `containers` and `deployment`.
 * Good, because subcommands, flags and `--help` are declared, not parsed by hand
 * Good, because CI cross-compiles `darwin-arm64`, `darwin-x64` and `linux-x64` binaries and attaches them to the release, and nothing is published to a registry
 * Good, because the scenarios run the built binary as they ran the script, so they carry over unchanged
-* Bad, because each binary is some 60 MB
+* Bad, because each binary is some 80 MB, most of it the Bun runtime
 * Bad, because Bun is a second runtime next to the Node that Cucumber and the session containers use
 
 ### Confirmation
