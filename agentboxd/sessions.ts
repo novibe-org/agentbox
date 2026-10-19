@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process'
-import { existsSync, mkdirSync, readdirSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Session, SessionRequest } from '../lib/api.ts'
 import { onPath } from '../lib/process.ts'
@@ -119,19 +119,22 @@ async function createSession({ id, repository, branch, authorizedKey }: SessionR
 }
 
 // The workspace repo and each repo under projects/ with uncommitted or unpushed work.
-async function unpushedWork(dir: string): Promise<string[]> {
-  const projects = existsSync(join(dir, 'projects'))
-    ? readdirSync(join(dir, 'projects'), { withFileTypes: true })
-        .filter((entry) => entry.isDirectory())
-        .map((entry) => `projects/${entry.name}`)
-    : []
+// git runs in the session's container: a repo's own config, which the session's agent
+// can write, may run commands, and must never do so on the host.
+async function unpushedWork(c: string, id: string): Promise<string[]> {
+  await run('docker', ['start', c])
+  const workspace = `/workspaces/${id}`
+  const git = (repo: string, ...args: string[]) => execute('docker', ['exec', '-u', '1000', '-w', `${workspace}/${repo}`, c, 'git', ...args])
+  const listed = await execute('docker', ['exec', '-u', '1000', '-w', workspace, c, 'find', 'projects', '-mindepth', '1', '-maxdepth', '1', '-type', 'd'])
+  const repos = ['.', ...listed.stdout.split('\n').filter(Boolean)]
   const unpushed: string[] = []
-  for (const repo of ['.', ...projects]) {
-    const path = join(dir, repo)
-    if (!existsSync(join(path, '.git'))) continue
-    const status = await run('git', ['-C', path, 'status', '--porcelain'])
-    const commits = await run('git', ['-C', path, 'log', '--branches', '--not', '--remotes', '--oneline'])
-    if (status.trim() || commits.trim()) unpushed.push(repo)
+  for (const repo of repos) {
+    const status = await git(repo, 'status', '--porcelain')
+    // Not a repo, as a plain directory under projects/ is not.
+    if (status.status !== 0 && repo !== '.') continue
+    if (status.status !== 0) throw new Error(`git status failed in ${id}: ${reason(status)}`)
+    const commits = await git(repo, 'log', '--branches', '--not', '--remotes', '--oneline')
+    if (status.stdout.trim() || commits.stdout.trim()) unpushed.push(repo)
   }
   return unpushed
 }
@@ -139,14 +142,13 @@ async function unpushedWork(dir: string): Promise<string[]> {
 export async function deleteSession(id: string): Promise<'deleted' | 'missing' | { unpushed: string[] }> {
   const c = await container(id)
   if (!c) return 'missing'
-  const dir = join(sessionsDir, id)
-  const unpushed = await unpushedWork(dir)
+  const unpushed = await unpushedWork(c, id)
   if (unpushed.length) return { unpushed }
   // The Dev Container CLI builds <name>-features, then <name>-features-uid on top for the container.
   const image = (await run('docker', ['inspect', '-f', '{{.Config.Image}}', c])).trim()
   await run('docker', ['rm', '-f', c])
   await execute('docker', ['rmi', image, image.replace(/-uid$/, '')])
-  rmSync(dir, { recursive: true, force: true })
+  rmSync(join(sessionsDir, id), { recursive: true, force: true })
   pending.delete(id)
   return 'deleted'
 }
