@@ -31,12 +31,19 @@ export function execute(command: string, args: string[], { input = '', env = {} 
   })
 }
 
+// Why a command failed: the Dev Container CLI ends its output with a JSON outcome, other
+// commands with their last line of errors.
+function reason({ stdout, stderr }: Result): string {
+  try {
+    const outcome = JSON.parse(stdout.trim().split('\n').at(-1) ?? '')
+    if (outcome?.outcome === 'error') return [outcome.message, outcome.description].filter(Boolean).join(': ')
+  } catch {}
+  return stderr.trim().split('\n').filter((line) => !/^\s+at /.test(line)).at(-1) ?? ''
+}
+
 async function run(command: string, args: string[], options: { input?: string; env?: Record<string, string> } = {}): Promise<string> {
   const result = await execute(command, args, options)
-  if (result.status !== 0) {
-    const reason = result.stderr.trim().split('\n').at(-1) ?? ''
-    throw new Error(`${command} ${args[0]} failed${reason ? `: ${reason}` : ''}`)
-  }
+  if (result.status !== 0) throw new Error(`${command} ${args[0]} failed${reason(result) ? `: ${reason(result)}` : ''}`)
   return result.stdout
 }
 

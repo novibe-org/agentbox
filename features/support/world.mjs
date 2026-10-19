@@ -82,7 +82,16 @@ function reset() {
 }
 
 Before(reset)
-After(reset)
+// A failed scenario shows what agentboxd logged on each test host.
+After(function ({ result }) {
+  if (result?.status === 'FAILED') {
+    for (const host of this.testHosts()) {
+      const logs = spawnSync('docker', ['logs', '--tail', '80', host], { encoding: 'utf8' })
+      console.error(`--- test host ${host}\n${logs.stdout}${logs.stderr}`)
+    }
+  }
+  reset()
+})
 
 class World {
   constructor() {
