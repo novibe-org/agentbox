@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process'
-import { existsSync, mkdirSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import type { Session, SessionRequest } from '../lib/api.ts'
+import type { Refusal, Session, SessionRequest } from '../lib/api.ts'
 import { onPath } from '../lib/process.ts'
 
 export const root = '/var/lib/agentbox'
@@ -9,8 +9,35 @@ const sessionsDir = join(root, 'sessions')
 // Mounted into every session by the Feature, so they must exist before one is built.
 const shared = ['claude', 'gh', 'git', 'pnpm-store']
 
-// Sessions being created, and those whose creation failed. A ready session is its container.
-const pending = new Map<string, Session>()
+// Each session's record, <id>.json next to its clone, holds whether its setup finished
+// or why it failed; the container and the clone hold the rest. Only agentboxd writes it.
+const recordPath = (id: string) => join(sessionsDir, `${id}.json`)
+
+function readRecord(id: string): Session | undefined {
+  try {
+    return JSON.parse(readFileSync(recordPath(id), 'utf8')) as Session
+  } catch {
+    return undefined
+  }
+}
+
+function writeRecord(session: Session): void {
+  const path = recordPath(session.id)
+  writeFileSync(`${path}.tmp`, JSON.stringify(session))
+  renameSync(`${path}.tmp`, path)
+}
+
+// Sessions this agentboxd is setting up right now.
+const creating = new Set<string>()
+
+// A setup that agentboxd did not live to finish has failed.
+export function recoverSessions(): void {
+  mkdirSync(sessionsDir, { recursive: true })
+  for (const file of readdirSync(sessionsDir).filter((name) => name.endsWith('.json'))) {
+    const session = readRecord(file.slice(0, -'.json'.length))
+    if (session?.status === 'creating') writeRecord({ ...session, status: 'failed', error: 'agentboxd restarted during setup' })
+  }
+}
 
 type Result = { status: number; stdout: string; stderr: string }
 
@@ -54,39 +81,53 @@ async function container(id: string): Promise<string | undefined> {
 export async function listSessions(): Promise<Session[]> {
   const format = '{{.Label "agentbox.session"}}\t{{.State}}'
   const lines = (await run('docker', ['ps', '-a', '--filter', 'label=agentbox.session', '--format', format])).split('\n').filter(Boolean)
-  const ready = lines
-    .map((line): Session => {
-      const [id = '', state] = line.split('\t')
-      return { id, status: 'ready', state }
-    })
-    .filter((session) => !pending.has(session.id))
-  return [...ready, ...pending.values()]
+  const states = new Map(lines.map((line) => line.split('\t') as [string, string]))
+  return readdirSync(sessionsDir)
+    .filter((name) => name.endsWith('.json'))
+    .map((name) => readRecord(name.slice(0, -'.json'.length)))
+    .filter((session) => session !== undefined)
+    .map((session) => (session.status === 'ready' ? { ...session, state: states.get(session.id) ?? 'missing' } : session))
 }
 
 export async function getSession(id: string): Promise<Session | undefined> {
-  const session = pending.get(id)
-  if (session) return session
+  const session = readRecord(id)
+  if (session?.status !== 'ready') return session
   const c = await container(id)
-  if (!c) return undefined
-  return { id, status: 'ready', state: (await run('docker', ['inspect', '-f', '{{.State.Status}}', c])).trim() }
+  return { ...session, state: c ? (await run('docker', ['inspect', '-f', '{{.State.Status}}', c])).trim() : 'missing' }
 }
 
 // Accepts the session and creates it in the background; false if the id is taken.
 export async function startSession(request: SessionRequest): Promise<Session | false> {
-  if (pending.get(request.id)?.status === 'creating') return false
   const session: Session = { id: request.id, status: 'creating' }
-  pending.set(request.id, session)
-  if (await container(request.id)) {
-    pending.delete(request.id)
+  mkdirSync(sessionsDir, { recursive: true })
+  // Writing the record reserves the id, failing if a session already has it.
+  try {
+    writeFileSync(recordPath(request.id), JSON.stringify(session), { flag: 'wx' })
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'EEXIST') return false
+    throw error
+  }
+  let taken: boolean
+  try {
+    taken = (await container(request.id)) !== undefined
+  } catch (error) {
+    rmSync(recordPath(request.id), { force: true })
+    throw error
+  }
+  if (taken) {
+    rmSync(recordPath(request.id), { force: true })
     return false
   }
-  createSession(request).then(
-    () => pending.delete(request.id),
-    (error: Error) => {
-      console.error(`Session ${request.id} failed: ${error.message}`)
-      pending.set(request.id, { id: request.id, status: 'failed', error: error.message })
-    },
-  )
+  creating.add(request.id)
+  createSession(request)
+    .then(
+      () => writeRecord({ id: request.id, status: 'ready' }),
+      (error: Error) => {
+        console.error(`Session ${request.id} failed: ${error.message}`)
+        writeRecord({ id: request.id, status: 'failed', error: error.message })
+      },
+    )
+    .finally(() => creating.delete(request.id))
   return session
 }
 
@@ -120,35 +161,38 @@ async function createSession({ id, repository, branch, authorizedKey }: SessionR
 
 // The workspace repo and each repo under projects/ with uncommitted or unpushed work.
 // git runs in the session's container: a repo's own config, which the session's agent
-// can write, may run commands, and must never do so on the host.
+// can write, may run commands, and must never do so on the host. A repo git cannot
+// check counts as unpushed, so its work is never deleted unseen.
 async function unpushedWork(c: string, id: string): Promise<string[]> {
   await run('docker', ['start', c])
   const workspace = `/workspaces/${id}`
   const git = (repo: string, ...args: string[]) => execute('docker', ['exec', '-u', '1000', '-w', `${workspace}/${repo}`, c, 'git', ...args])
-  const listed = await execute('docker', ['exec', '-u', '1000', '-w', workspace, c, 'find', 'projects', '-mindepth', '1', '-maxdepth', '1', '-type', 'd'])
-  const repos = ['.', ...listed.stdout.split('\n').filter(Boolean)]
+  const listed = await execute('docker', ['exec', '-u', '1000', '-w', workspace, c, 'find', 'projects', '-mindepth', '2', '-maxdepth', '2', '-name', '.git'])
+  if (listed.status !== 0 && !/No such file/.test(listed.stderr)) throw new Error(`Cannot list the repos of ${id}: ${reason(listed)}`)
+  const repos = ['.', ...listed.stdout.split('\n').filter(Boolean).map((path) => path.replace(/\/\.git$/, ''))]
   const unpushed: string[] = []
   for (const repo of repos) {
     const status = await git(repo, 'status', '--porcelain')
-    // Not a repo, as a plain directory under projects/ is not.
-    if (status.status !== 0 && repo !== '.') continue
-    if (status.status !== 0) throw new Error(`git status failed in ${id}: ${reason(status)}`)
     const commits = await git(repo, 'log', '--branches', '--not', '--remotes', '--oneline')
-    if (status.stdout.trim() || commits.stdout.trim()) unpushed.push(repo)
+    if (status.status !== 0 || commits.status !== 0 || status.stdout.trim() || commits.stdout.trim()) unpushed.push(repo)
   }
   return unpushed
 }
 
-export async function deleteSession(id: string): Promise<'deleted' | 'missing' | { unpushed: string[] }> {
+export async function deleteSession(id: string): Promise<'deleted' | 'missing' | Refusal> {
+  if (creating.has(id)) return { error: `Session ${id} is being set up` }
   const c = await container(id)
-  if (!c) return 'missing'
-  const unpushed = await unpushedWork(c, id)
-  if (unpushed.length) return { unpushed }
-  // The Dev Container CLI builds <name>-features, then <name>-features-uid on top for the container.
-  const image = (await run('docker', ['inspect', '-f', '{{.Config.Image}}', c])).trim()
-  await run('docker', ['rm', '-f', c])
-  await execute('docker', ['rmi', image, image.replace(/-uid$/, '')])
+  if (!c && !readRecord(id)) return 'missing'
+  // Without a container no agent ran, so a clone left by a failed setup holds no work.
+  if (c) {
+    const unpushed = await unpushedWork(c, id)
+    if (unpushed.length) return { error: `Session ${id} has unpushed or uncommitted work`, unpushed }
+    // The Dev Container CLI builds <name>-features, then <name>-features-uid on top for the container.
+    const image = (await run('docker', ['inspect', '-f', '{{.Config.Image}}', c])).trim()
+    await run('docker', ['rm', '-f', c])
+    await execute('docker', ['rmi', image, image.replace(/-uid$/, '')])
+  }
   rmSync(join(sessionsDir, id), { recursive: true, force: true })
-  pending.delete(id)
+  rmSync(recordPath(id), { force: true })
   return 'deleted'
 }

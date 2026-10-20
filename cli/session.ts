@@ -3,7 +3,7 @@ import { join } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import type { Refusal, Session } from '../lib/api.ts'
 import { hostName, sessionId } from '../lib/names.ts'
-import { exec, fail, run } from '../lib/process.ts'
+import { Exit, exec, fail, run } from '../lib/process.ts'
 import { call, connect } from './client.ts'
 import { home, hosts, sessions } from './paths.ts'
 
@@ -36,16 +36,25 @@ function openSession(id: string): never {
 export async function newSession(id: string, repo: string | undefined, host: string | undefined): Promise<never> {
   sessionId(id)
   const record = join(sessions, id)
-  if (existsSync(record)) fail(`Session ${id} already exists on ${readFileSync(record, 'utf8').trim()}`)
   const m = host ? hostName(host) : machine()
   const source = repoSource(repo || process.env.AGENTBOX_REPO || run('git', ['remote', 'get-url', 'origin']).trim())
   const authorizedKey = readFileSync(process.env.AGENTBOX_PUBKEY || join(home, '.ssh/id_ed25519.pub'), 'utf8').trim()
-  await connect(m)
-  const created = await call<Session | Refusal>(m, 'POST', '/sessions', { id, ...source, authorizedKey })
-  if (created.status === 409) fail(`Session ${id} already exists on ${m}`)
-  if (created.status !== 202) fail(`agentboxd on ${m} refused session ${id}: ${(created.body as Refusal).error}`)
+  // Writing the record reserves the id, failing if a session already has it. A refused
+  // session releases it; one whose outcome is unknown keeps it, for rm to clear.
   mkdirSync(sessions, { recursive: true })
-  writeFileSync(record, `${m}\n`)
+  try {
+    writeFileSync(record, `${m}\n`, { flag: 'wx' })
+  } catch {
+    fail(`Session ${id} already exists on ${readFileSync(record, 'utf8').trim()}`)
+  }
+  const refuse = (message: string): never => {
+    rmSync(record, { force: true })
+    return fail(message)
+  }
+  await connect(m).catch((error: unknown) => refuse(error instanceof Exit ? error.message : String(error)))
+  const created = await call<Session | Refusal>(m, 'POST', '/sessions', { id, ...source, authorizedKey })
+  if (created.status === 409) refuse(`Session ${id} already exists on ${m}`)
+  if (created.status !== 202) refuse(`agentboxd on ${m} refused session ${id}: ${(created.body as Refusal).error}`)
 
   // The host sets the session up whatever happens here; this only waits to open it.
   console.log(`Setting up ${id} on ${m}`)
@@ -78,7 +87,8 @@ export async function removeSession(id: string): Promise<void> {
   await connect(m)
   const { status, body } = await call<Refusal | undefined>(m, 'DELETE', `/sessions/${id}`)
   if (status === 404) fail(`${m} has no session ${id}`)
-  if (status === 409) fail(`Not deleting ${id}, unpushed or uncommitted work in:\n${body?.unpushed?.join('\n')}`)
+  if (status === 409 && body?.unpushed) fail(`Not deleting ${id}, unpushed or uncommitted work in:\n${body.unpushed.join('\n')}`)
+  if (status === 409) fail(`Not deleting ${id}: ${body?.error}`)
   if (status !== 204) fail(`agentboxd on ${m} did not delete ${id}: ${body?.error}`)
   rmSync(join(sessions, id), { force: true })
 }

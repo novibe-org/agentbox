@@ -59,7 +59,7 @@ Hosts agentbox did not create have no agentboxd, and this version runs no sessio
 
 ### The session API
 
-agentboxd serves the API in [`agentboxd/openapi.yaml`](agentboxd/openapi.yaml) on a Unix socket, `/run/agentboxd/agentboxd.sock`, that only the `agentbox` user can open. No port is open for it: the CLI reaches it over SSH with `ssh <host> agentboxd dial-stdio`, as Docker's CLI reaches `dockerd`. It keeps no state of its own; the labelled containers and the clones are the sessions.
+agentboxd serves the API in [`agentboxd/openapi.yaml`](agentboxd/openapi.yaml) on a Unix socket, `/run/agentboxd/agentboxd.sock`, that only the `agentbox` user can open. No port is open for it: the CLI reaches it over SSH with `ssh <host> agentboxd dial-stdio`, as Docker's CLI reaches `dockerd`. It keeps one record per session, whether its setup finished or why it failed; the labelled containers and the clones hold the rest.
 
 ```bash
 ssh box2 'curl -s --unix-socket /run/agentboxd/agentboxd.sock http://agentboxd/health'   # what the host can do

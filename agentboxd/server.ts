@@ -4,7 +4,7 @@ import { version } from '../package.json'
 import type { SessionRequest } from '../lib/api.ts'
 import { idPattern } from '../lib/names.ts'
 import { health } from './health.ts'
-import { deleteSession, getSession, listSessions, startSession } from './sessions.ts'
+import { deleteSession, getSession, listSessions, recoverSessions, startSession } from './sessions.ts'
 
 function send(res: ServerResponse, status: number, body?: unknown, type = 'application/json'): void {
   if (body === undefined) {
@@ -59,12 +59,13 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const result = await deleteSession(id)
     if (result === 'deleted') return send(res, 204)
     if (result === 'missing') return send(res, 404, { error: `No session ${id}` })
-    return send(res, 409, { error: `Session ${id} has unpushed or uncommitted work`, unpushed: result.unpushed })
+    return send(res, 409, result)
   }
   send(res, 404, { error: `No ${req.method} ${path}` })
 }
 
 export function serve(socket: string): void {
+  recoverSessions()
   rmSync(socket, { force: true })
   const server = http.createServer((req, res) => {
     route(req, res).catch((error: Error) => {

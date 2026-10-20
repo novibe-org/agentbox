@@ -82,7 +82,7 @@ paths:
         "404":
           description: No session with this id on the host
         "409":
-          description: Refused, as repos in the session have uncommitted or unpushed work
+          description: Refused, as the session is being set up, or repos in it have uncommitted or unpushed work, or work git cannot check
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Refusal" }
