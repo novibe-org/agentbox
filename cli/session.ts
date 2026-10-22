@@ -68,11 +68,19 @@ export function openExisting(id: string): never {
 export async function listSessions(): Promise<void> {
   const known = existsSync(hosts) ? readdirSync(hosts).sort() : []
   const all = process.env.AGENTBOX_MACHINE && !known.includes(process.env.AGENTBOX_MACHINE) ? [...known, process.env.AGENTBOX_MACHINE] : known
+  let unreachable = false
   for (const host of all) {
-    await connect(host)
-    const { body } = await call<Session[]>(host, 'GET', '/sessions')
-    for (const s of body) console.log([s.id, host, s.status === 'ready' ? s.state : s.status].join('\t'))
+    try {
+      await connect(host)
+      const { body } = await call<Session[]>(host, 'GET', '/sessions')
+      for (const s of body) console.log([s.id, host, s.status === 'ready' ? s.state : s.status].join('\t'))
+    } catch (error) {
+      if (!(error instanceof Exit)) throw error
+      console.error(error.message)
+      unreachable = true
+    }
   }
+  if (unreachable) throw new Exit(1)
 }
 
 export async function removeSession(id: string): Promise<void> {
