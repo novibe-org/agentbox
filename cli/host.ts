@@ -36,7 +36,7 @@ export async function createHost(name: string, _provider: string, tailnet: boole
   console.log(`Creating server ${name} on Hetzner`)
   run('tofu', [`-chdir=${d}`, 'init', '-input=false'], { stdout: 'ignore' })
   run('tofu', [`-chdir=${d}`, 'apply', '-input=false', '-auto-approve'], { stdout: 'ignore' })
-  const address = run('tofu', [`-chdir=${d}`, 'output', '-raw', 'address']).trim()
+  const address = await hostAddress(d)
   if (!/^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$|^[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(address)) fail(`OpenTofu gave no address for ${name}: ${address}`)
   console.log(`Server ${name} is up at ${address}, setting it up`)
   writeFileSync(
@@ -74,6 +74,19 @@ export async function createHost(name: string, _provider: string, tailnet: boole
     await sleep(5000)
   }
   fail(`Host ${name} was created but is not ready after 5 minutes: ssh ${name} to look`)
+}
+
+// Tailscale's device list can lag behind the device the host joined as, which leaves the
+// address null after the apply; a refresh reads it again.
+async function hostAddress(d: string): Promise<string> {
+  for (let i = 0; i < 12; i++) {
+    const outputs = JSON.parse(run('tofu', [`-chdir=${d}`, 'output', '-json'])) as Record<string, { value: unknown }>
+    const address = outputs.address?.value
+    if (typeof address === 'string' && address) return address
+    await sleep(5000)
+    run('tofu', [`-chdir=${d}`, 'apply', '-refresh-only', '-input=false', '-auto-approve'], { stdout: 'ignore' })
+  }
+  return ''
 }
 
 // AGENTBOX_MODULE_SOURCE points at a checkout's modules/, so a test run applies the modules it tests.
