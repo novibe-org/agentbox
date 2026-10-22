@@ -58,3 +58,27 @@ Then('the developer is told the work in {string} cannot be checked', function (s
 Then('the note in {string} is still on {string}', function (session, _host) {
   assert.equal(readFileSync(`/var/lib/agentbox/sessions/${session}/notes.md`, 'utf8').trim(), 'Login fails after password reset')
 })
+
+Given('the developer has session {string} on {string}, and host {string} does not answer', function (session, host, silent) {
+  succeeded(this.agentbox('host', 'create', host, '--provider', 'hetzner'))
+  succeeded(this.agentbox('new', session, this.workspace, '--host', host))
+  this.env.AGENTBOX_MACHINE = silent
+})
+
+When('the developer lists their sessions', function () {
+  this.agentbox('ls')
+})
+
+Then('the developer is told there are no sessions yet, and how to start one on {string}', function (host) {
+  succeeded(this.result)
+  assert.equal(this.result.stdout, '')
+  assert.match(this.result.stderr, new RegExp(`No sessions yet: agentbox new .*--host ${host}`))
+})
+
+Then('the developer is told {string} does not answer', function (host) {
+  assert.match(this.result.stderr, new RegExp(`${host} does not answer`))
+})
+
+Then('the developer sees session {string} on {string}', function (session, host) {
+  assert.match(this.result.stdout, new RegExp(`^${session}\t${host}\t`, 'm'))
+})
