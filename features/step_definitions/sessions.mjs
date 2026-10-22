@@ -1,5 +1,7 @@
 import { Given, Then, When } from '@cucumber/cucumber'
 import assert from 'node:assert/strict'
+import { execFileSync } from 'node:child_process'
+import { readFileSync } from 'node:fs'
 
 function succeeded(result) {
   assert.equal(result.status, 0, `agentbox failed:\n${result.stdout}\n${result.stderr}`)
@@ -36,4 +38,23 @@ Then('session {string} opens with its note intact', function (session) {
   const note = this.ssh(`${session}.agentbox`, `cat /workspaces/${session}/notes.md`)
   assert.equal(note.status, 0, note.stderr)
   assert.equal(note.stdout.trim(), 'Login fails after password reset')
+})
+
+Given('the container of session {string} is gone', function (session) {
+  const ids = execFileSync('docker', ['ps', '-aq', '--filter', `label=agentbox.session=${session}`], { encoding: 'utf8' }).split('\n').filter(Boolean)
+  assert.notEqual(ids.length, 0)
+  execFileSync('docker', ['rm', '-f', ...ids], { stdio: 'ignore' })
+})
+
+When('the developer removes session {string}', function (session) {
+  this.agentbox('rm', session)
+})
+
+Then('the developer is told the work in {string} cannot be checked', function (session) {
+  assert.notEqual(this.result.status, 0)
+  assert.match(this.result.stderr, new RegExp(`Session ${session} has lost its container, so its work cannot be checked`))
+})
+
+Then('the note in {string} is still on {string}', function (session, _host) {
+  assert.equal(readFileSync(`/var/lib/agentbox/sessions/${session}/notes.md`, 'utf8').trim(), 'Login fails after password reset')
 })

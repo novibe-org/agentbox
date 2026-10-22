@@ -112,9 +112,10 @@ export async function startSession(request: SessionRequest): Promise<Session | f
   createSession(request)
     .then(
       () => writeRecord({ id: request.id, status: 'ready' }),
-      (error: Error) => {
+      async (error: Error) => {
         console.error(`Session ${request.id} failed: ${error.message}`)
         writeRecord({ id: request.id, status: 'failed', error: error.message })
+        if (!(await container(request.id).catch(() => 'unknown'))) rmSync(join(sessionsDir, request.id), { recursive: true, force: true })
       },
     )
     .finally(() => creating.delete(request.id))
@@ -164,6 +165,9 @@ export async function deleteSession(id: string): Promise<'deleted' | 'missing' |
   if (creating.has(id)) return { error: `Session ${id} is being set up` }
   const c = await container(id)
   if (!c && !readRecord(id)) return 'missing'
+  if (!c && existsSync(join(sessionsDir, id))) {
+    return { error: `Session ${id} has lost its container, so its work cannot be checked; its clone is at ${join(sessionsDir, id)}` }
+  }
   if (c) {
     const unpushed = await unpushedWork(c, id)
     if (unpushed.length) return { error: `Session ${id} has unpushed or uncommitted work`, unpushed }
