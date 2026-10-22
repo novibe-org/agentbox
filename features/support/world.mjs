@@ -11,10 +11,9 @@ const home = homedir()
 const fixtures = mkdtempSync(join(tmpdir(), 'agentbox-fixtures-'))
 chmodSync(fixtures, 0o755)
 const workspace = `file://${fixtures}/acme/workspace.git`
+const app = `file://${fixtures}/acme/app.git`
 let agent
 
-// The scenarios create hosts from the real ~/.agentbox and ~/.ssh, since ssh reads
-// the user's home whatever HOME says. Only a throwaway machine may run them.
 BeforeAll(() => {
   if (process.env.AGENTBOX_E2E !== '1') {
     throw new Error('The scenarios delete ~/.agentbox and the Docker containers of agentbox sessions. Set AGENTBOX_E2E=1 on a throwaway machine, as CI does.')
@@ -27,23 +26,42 @@ BeforeAll(() => {
   )
   execFileSync('ssh-add', ['-q', key], { env: { ...process.env, ...agent } })
 
-  const tree = join(fixtures, 'tree')
-  mkdirSync(join(tree, '.devcontainer'), { recursive: true })
-  cpSync(join(repo, 'src/agentbox'), join(tree, '.devcontainer/agentbox'), { recursive: true })
-  writeFileSync(
-    join(tree, '.devcontainer/devcontainer.json'),
-    JSON.stringify({ image: 'node:22-bookworm-slim', remoteUser: 'node', features: { './agentbox': {} } }, null, 2),
-  )
+  repository('acme/app', { 'README.md': '# acme app\n' })
+  repository('acme/workspace', {
+    '.devcontainer/devcontainer.json': JSON.stringify(
+      {
+        image: 'node:22-bookworm-slim',
+        remoteUser: 'node',
+        features: { './agentbox': {} },
+        mounts: [{ source: fixtures, target: fixtures, type: 'bind' }],
+        postCreateCommand: 'bash .devcontainer/setup.sh',
+      },
+      null,
+      2,
+    ),
+    '.devcontainer/setup.sh': `[ -d projects/app/.git ] || git clone -q ${app} projects/app\n`,
+    '.gitignore': 'projects/\n',
+  })
+  execFileSync('sudo', ['chown', '-R', '1000:1000', fixtures])
+})
+
+function repository(name, files) {
+  const tree = join(fixtures, 'tree', name)
+  for (const [path, content] of Object.entries(files)) {
+    mkdirSync(join(tree, path, '..'), { recursive: true })
+    writeFileSync(join(tree, path), content)
+  }
+  if (name === 'acme/workspace') cpSync(join(repo, 'src/agentbox'), join(tree, '.devcontainer/agentbox'), { recursive: true })
   const git = (...args) => execFileSync('git', args, { cwd: tree })
   git('init', '-q', '-b', 'main')
   git('add', '.')
-  git('-c', 'user.name=acme', '-c', 'user.email=dev@acme.test', 'commit', '-q', '-m', 'Workspace')
-  execFileSync('git', ['clone', '-q', '--bare', tree, join(fixtures, 'acme/workspace.git')])
-})
+  git('-c', 'user.name=acme', '-c', 'user.email=dev@acme.test', 'commit', '-q', '-m', name)
+  execFileSync('git', ['clone', '-q', '--bare', tree, join(fixtures, `${name}.git`)])
+}
 
 AfterAll(() => {
   if (agent) execFileSync('ssh-agent', ['-k'], { env: { ...process.env, ...agent }, stdio: 'ignore' })
-  rmSync(fixtures, { recursive: true, force: true })
+  execFileSync('sudo', ['rm', '-rf', fixtures])
 })
 
 function reset() {
@@ -58,15 +76,24 @@ function reset() {
 }
 
 Before(reset)
-After(reset)
+After(function ({ result }) {
+  if (result?.status === 'FAILED') {
+    for (const host of this.testHosts()) {
+      const logs = spawnSync('docker', ['logs', '--tail', '80', host], { encoding: 'utf8' })
+      console.error(`--- test host ${host}\n${logs.stdout}${logs.stderr}`)
+    }
+  }
+  reset()
+})
 
 class World {
   constructor() {
     this.workspace = workspace
+    this.app = app
     this.env = {
       ...process.env,
       ...agent,
-      PATH: `${repo}/test/bin:${repo}/bin:${process.env.PATH}`,
+      PATH: `${repo}/test/bin:${repo}/dist:${process.env.PATH}`,
       HCLOUD_TOKEN: 'test-token',
       AGENTBOX_TEST_FIXTURES: fixtures,
     }

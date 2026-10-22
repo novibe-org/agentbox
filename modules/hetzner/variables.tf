@@ -19,6 +19,11 @@ variable "host_key_pub" {
   type        = string
 }
 
+variable "release" {
+  description = "agentbox release whose agentboxd the host runs, the CLI's own version"
+  type        = string
+}
+
 variable "server_type" {
   description = "Hetzner server type"
   type        = string

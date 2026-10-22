@@ -1,0 +1,138 @@
+openapi: 3.1.0
+info:
+  title: agentboxd
+  summary: The session API of an agentbox host
+  version: "1"
+  license:
+    name: MIT
+    identifier: MIT
+servers:
+  - url: http://agentboxd
+paths:
+  /health:
+    get:
+      summary: Report whether the host can run sessions, and agentboxd's version
+      responses:
+        "200":
+          description: Every check passes
+          content:
+            application/health+json:
+              schema: { $ref: "#/components/schemas/Health" }
+        "503":
+          description: A check fails
+          content:
+            application/health+json:
+              schema: { $ref: "#/components/schemas/Health" }
+  /sessions:
+    get:
+      summary: List the host's sessions
+      responses:
+        "200":
+          description: The sessions
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Session" }
+    post:
+      summary: Create a session; the host clones the workspace, builds its container and runs its setup in the background
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SessionRequest" }
+      responses:
+        "202":
+          description: Accepted; the session is being created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Session" }
+        "400":
+          description: The request is malformed
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Refusal" }
+        "409":
+          description: A session with this id exists on the host
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Refusal" }
+  /sessions/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { $ref: "#/components/schemas/SessionId" }
+    get:
+      summary: Get a session, to follow its creation
+      responses:
+        "200":
+          description: The session
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Session" }
+        "404":
+          description: No session with this id on the host
+    delete:
+      summary: Delete a session with its container, images and clone
+      responses:
+        "204":
+          description: Deleted
+        "404":
+          description: No session with this id on the host
+        "409":
+          description: Refused, as the session is being set up, or repos in it have uncommitted or unpushed work, or work git cannot check
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Refusal" }
+components:
+  schemas:
+    SessionId:
+      type: string
+      pattern: "^[a-z0-9][a-z0-9-]*$"
+    SessionRequest:
+      type: object
+      required: [id, repository, authorizedKey]
+      properties:
+        id: { $ref: "#/components/schemas/SessionId" }
+        repository:
+          type: string
+          description: Git URL of the workspace repo; GitHub over HTTPS
+        branch: { type: string }
+        authorizedKey:
+          type: string
+          description: Public key authorized in the session's container
+    Session:
+      type: object
+      required: [id, status]
+      properties:
+        id: { $ref: "#/components/schemas/SessionId" }
+        status: { enum: [creating, ready, failed] }
+        state:
+          type: string
+          description: The container's state as Docker reports it
+        error: { type: string }
+    Refusal:
+      type: object
+      required: [error]
+      properties:
+        error: { type: string }
+        unpushed:
+          type: array
+          items: { type: string }
+    Health:
+      type: object
+      required: [status, version, checks]
+      properties:
+        status: { enum: [pass, fail] }
+        version: { type: string }
+        checks:
+          type: object
+          additionalProperties:
+            type: array
+            items:
+              type: object
+              required: [status]
+              properties:
+                status: { enum: [pass, fail] }
+                output: { type: string }

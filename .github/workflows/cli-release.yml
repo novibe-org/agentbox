@@ -3,18 +3,38 @@ name: cli release
 on:
   push:
     branches: [main]
-    paths: [bin/agentbox, modules/**]
+    paths: [cli/**, agentboxd/**, lib/**, modules/**, package.json, package-lock.json]
 
 jobs:
-  tag:
-    runs-on: ubuntu-latest
+  release:
+    runs-on: macos-latest
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v4
-      # The CLI fetches its modules at the tag of its own VERSION.
-      - run: |
-          v=v$(sed -n 's/^VERSION=//p' bin/agentbox)
-          git ls-remote --exit-code --tags origin "refs/tags/$v" >/dev/null && exit 0
-          git tag "$v"
-          git push origin "$v"
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - id: version
+        run: |
+          tag=v$(node -p 'require("./package.json").version')
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null || echo "new=true" >> "$GITHUB_OUTPUT"
+      - if: steps.version.outputs.new == 'true'
+        run: npm ci
+      - if: steps.version.outputs.new == 'true'
+        run: |
+          for target in darwin-arm64 darwin-x64 linux-x64; do
+            npx bun build cli/main.ts --compile --target="bun-$target" --outfile "dist/agentbox-$target"
+          done
+          npx bun build agentboxd/main.ts --compile --target=bun-linux-x64 --outfile dist/agentboxd-linux-x64
+          codesign --force --sign - dist/agentbox-darwin-arm64 dist/agentbox-darwin-x64
+          dist/agentbox-darwin-arm64 --version
+      - if: steps.version.outputs.new == 'true'
+        run: gh release create "$TAG" dist/agentbox-* dist/agentboxd-linux-x64 --target "$GITHUB_SHA" --title "$TAG" --generate-notes
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+          GH_TOKEN: ${{ github.token }}

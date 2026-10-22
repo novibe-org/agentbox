@@ -10,17 +10,35 @@ views {
   }
 
   dynamic view createHost {
-    title 'Create a host on Hetzner, then a session on it'
+    title 'Create a host on Hetzner'
     developer -> agentbox.cli 'agentbox host create box2 --provider hetzner'
     agentbox.cli -> agentbox.hostRegistry 'checks no host is named box2'
     agentbox.cli -> agentbox.hetznerModule 'tofu apply'
     agentbox.hetznerModule -> hetzner 'creates server, volume and firewall'
     agentbox.cli -> agentbox.hostRegistry 'keeps box2\'s state'
     agentbox.cli -> agentbox.sshConfig 'writes box2\'s entry'
+    agentbox.cli -> agentbox.agentboxd 'waits until box2 reports healthy'
+  }
+
+  dynamic view createSession {
+    title 'Create a session and open it once it is set up'
     developer -> agentbox.cli 'agentbox new fix-login acme/workspace --host box2'
-    agentbox.cli -> github 'clones acme/workspace on box2'
+    agentbox.cli -> agentbox.sessionRegistry 'checks no session is named fix-login'
+    agentbox.cli -> agentbox.agentboxd 'checks box2 runs its version'
+    agentbox.cli -> agentbox.agentboxd 'creates fix-login from acme/workspace'
     agentbox.cli -> agentbox.sessionRegistry 'records fix-login on box2'
-    agentbox.cli -> agentbox.session 'builds and opens fix-login'
+    agentbox.agentboxd -> github 'clones acme/workspace'
+    agentbox.agentboxd -> agentbox.session 'builds fix-login and runs the workspace\'s setup'
+    agentbox.session -> github 'clones acme/app'
+    agentbox.cli -> agentbox.agentboxd 'waits until fix-login is set up'
+    agentbox.cli -> agentbox.session 'opens fix-login'
+  }
+
+  dynamic view refuseTakenSession {
+    title 'Refuse a session id that is taken'
+    developer -> agentbox.cli 'agentbox new fix-login acme/workspace --host box3'
+    agentbox.cli -> agentbox.sessionRegistry 'finds fix-login on box2'
+    agentbox.cli -> developer 'session fix-login already exists on box2'
   }
 
   dynamic view refuseWithoutAccess {
