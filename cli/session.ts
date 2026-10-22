@@ -68,18 +68,22 @@ export function openExisting(id: string): never {
 export async function listSessions(): Promise<void> {
   const known = existsSync(hosts) ? readdirSync(hosts).sort() : []
   const all = process.env.AGENTBOX_MACHINE && !known.includes(process.env.AGENTBOX_MACHINE) ? [...known, process.env.AGENTBOX_MACHINE] : known
+  if (!all.length) return console.error('No hosts yet: agentbox host create <name> --provider hetzner')
   let unreachable = false
+  let listed = 0
   for (const host of all) {
     try {
       await connect(host)
       const { body } = await call<Session[]>(host, 'GET', '/sessions')
       for (const s of body) console.log([s.id, host, s.status === 'ready' ? s.state : s.status].join('\t'))
+      listed += body.length
     } catch (error) {
       if (!(error instanceof Exit)) throw error
       console.error(error.message)
       unreachable = true
     }
   }
+  if (!listed && !unreachable) console.error(`No sessions yet: agentbox new <id> <repo> --host ${all[0]}`)
   if (unreachable) throw new Exit(1)
 }
 
