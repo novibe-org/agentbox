@@ -53,3 +53,15 @@ Then('session {string} on {string} opens with its work intact', function (sessio
   assert.equal(notes.status, 0, notes.stderr)
   assert.equal(notes.stdout.trim(), 'Login fails after password reset')
 })
+
+Then('the developer is told in turn that server {string} is being created, is up at its address, and is ready', function (host) {
+  succeeded(this.result)
+  const steps = [`Creating server ${host}`, new RegExp(`Server ${host} is up at \\d+\\.\\d+\\.\\d+\\.\\d+`), `Host ${host} is ready`]
+  let from = 0
+  for (const step of steps) {
+    const rest = this.result.stdout.slice(from)
+    const at = typeof step === 'string' ? rest.indexOf(step) : rest.search(step)
+    assert.notEqual(at, -1, `"${step}" missing, or out of order, in:\n${this.result.stdout}`)
+    from += at + 1
+  }
+})
