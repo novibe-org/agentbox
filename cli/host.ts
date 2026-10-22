@@ -43,10 +43,12 @@ output "ipv4" {
 }
 `,
   )
+  console.log(`Creating server ${name} on Hetzner`)
   run('tofu', [`-chdir=${d}`, 'init', '-input=false'], { stdout: 'ignore' })
   run('tofu', [`-chdir=${d}`, 'apply', '-input=false', '-auto-approve'], { stdout: 'ignore' })
   const ip = run('tofu', [`-chdir=${d}`, 'output', '-raw', 'ipv4']).trim()
   if (!/^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/.test(ip)) fail(`OpenTofu gave no IPv4 address for ${name}: ${ip}`)
+  console.log(`Server ${name} is up at ${ip}, setting it up`)
   writeFileSync(
     join(d, 'ssh_config'),
     `Host ${name}
@@ -67,13 +69,18 @@ output "ipv4" {
   writeSshConfig()
 
   const once = ['-o', 'ConnectTimeout=5', '-o', 'ControlPath=none']
+  let waiting = ''
   for (let i = 0; i < 60; i++) {
     const health = await request<Health>(name, 'GET', '/health', undefined, once).catch(() => undefined)
     if (health?.body?.status === 'pass') {
+      console.log(`Replacing the host key of ${name}`)
       await rotateHostKey(name, d)
       console.log(`Host ${name} is ready: agentbox new <id> <repo> --host ${name}`)
       return
     }
+    const now = health?.body ? Object.keys(health.body.checks).filter((check) => health.body.checks[check]?.some((c) => c.status === 'fail')).join(', ') : 'agentboxd to answer'
+    if (now !== waiting) console.log(`Waiting for ${name}: ${now}`)
+    waiting = now
     await sleep(5000)
   }
   fail(`Host ${name} was created but is not ready after 5 minutes: ssh ${name} to look`)
