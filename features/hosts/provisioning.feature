@@ -60,3 +60,9 @@ Feature: Host provisioning
       When the developer moves "box2" onto their tailnet
       Then session "fix-login" on "box2" opens with its work intact
       And nothing on the internet outside the tailnet can connect to "box2"
+
+    @backlog
+    Scenario: The sessions on a tailnet host cannot reach the developer's other devices
+      Given the developer has host "box2" on their tailnet, and their laptop "mbp" is on it too
+      When session "fix-login" on "box2" tries to connect to "mbp"
+      Then the connection is refused
