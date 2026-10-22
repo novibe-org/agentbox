@@ -16,7 +16,7 @@ Sessions are isolated from each other and from your laptop, not from your accoun
 
 ## Setup at a glance
 
-1. [Install the CLI](#the-cli) and [OpenTofu](https://opentofu.org/docs/intro/install/).
+1. [Install the CLI](#the-cli): `brew install novibe-org/tap/agentbox`, which brings [OpenTofu](https://opentofu.org/docs/intro/install/) along.
 2. [Create a session host](#a-host-on-hetzner): `agentbox host create box2 --provider hetzner`.
 3. [Make a workspace repo](#a-workspace) whose devcontainer uses the Feature.
 4. `agentbox new <id> <owner/workspace> --host box2`, then [log in once](#log-in-once).
@@ -111,7 +111,13 @@ Good habits for a workspace repo:
 
 ## The CLI
 
-Install a release, and keep it on your `PATH`:
+Install it with [Homebrew](https://brew.sh), which also installs OpenTofu:
+
+```bash
+brew install novibe-org/tap/agentbox
+```
+
+`brew upgrade agentbox` picks up new releases. Without Homebrew, download a release and keep it on your `PATH`:
 
 ```bash
 curl -fsSL https://github.com/novibe-org/agentbox/releases/download/v0.2.1/agentbox-darwin-arm64 -o ~/.local/bin/agentbox

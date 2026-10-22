@@ -38,3 +38,52 @@ jobs:
         env:
           TAG: ${{ steps.version.outputs.tag }}
           GH_TOKEN: ${{ github.token }}
+      - if: steps.version.outputs.new == 'true'
+        run: |
+          git clone --depth 1 "https://x-access-token:$GH_TOKEN@github.com/novibe-org/homebrew-tap.git" tap
+          version=${TAG#v}
+          url=https://github.com/novibe-org/agentbox/releases/download/$TAG
+          sha() { shasum -a 256 "dist/agentbox-$1" | cut -d' ' -f1; }
+          cat > tap/Formula/agentbox.rb <<FORMULA
+          class Agentbox < Formula
+            desc "One container per coding-agent session on a remote Docker host"
+            homepage "https://github.com/novibe-org/agentbox"
+            license "Apache-2.0"
+
+            on_macos do
+              on_arm do
+                url "$url/agentbox-darwin-arm64"
+                sha256 "$(sha darwin-arm64)"
+              end
+              on_intel do
+                url "$url/agentbox-darwin-x64"
+                sha256 "$(sha darwin-x64)"
+              end
+            end
+
+            on_linux do
+              on_intel do
+                url "$url/agentbox-linux-x64"
+                sha256 "$(sha linux-x64)"
+              end
+            end
+
+            depends_on "opentofu"
+
+            def install
+              bin.install Dir["agentbox-*"].first => "agentbox"
+            end
+
+            test do
+              assert_equal version.to_s, shell_output("#{bin}/agentbox --version").strip
+            end
+          end
+          FORMULA
+          cd tap
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "agentbox $version"
+          git push
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
