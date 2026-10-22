@@ -9,6 +9,11 @@ Feature: Host provisioning
     When the developer creates host "box2" on Hetzner
     Then session "fix-login" started on "box2" from "acme/workspace" opens with the workspace checked out
 
+  Scenario: A host being created tells the developer each step
+    Given the developer has no hosts yet
+    When the developer creates host "box2" on Hetzner
+    Then the developer is told in turn that server "box2" is being created, is up at its address, and is ready
+
   Scenario: Without Hetzner access no host is created
     Given the developer has not given agentbox access to a Hetzner project
     When the developer creates host "box2" on Hetzner
