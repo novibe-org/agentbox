@@ -2,6 +2,7 @@
 # Deletes what test runs left in the test Hetzner project and the test tailnet, older than $1 minutes.
 # Both accounts hold nothing but tests, so everything in them may go.
 set -euo pipefail
+shopt -s inherit_errexit
 if [ "${GITHUB_ACTIONS:-}" != true ]; then
   echo "test/sweep deletes everything its tokens reach, so it runs only in the cloud and sweep workflows" >&2
   exit 1
@@ -13,22 +14,32 @@ hcloud() {
   curl -fsS -H "Authorization: Bearer $HCLOUD_TOKEN" "${@:2}" "https://api.hetzner.cloud/v1/$1"
 }
 
-for id in $(hcloud 'servers?per_page=50' | jq -r --argjson cutoff "$cutoff" ".servers | $old | .[].id"); do
+# Each listing is assigned before it is used, so a refused token stops the sweep.
+ids() {
+  local listing
+  listing=$(hcloud "$1?per_page=50")
+  jq -r --argjson cutoff "$cutoff" ".$1 | $old | .[].id" <<<"$listing"
+}
+
+servers=$(ids servers)
+for id in $servers; do
   echo "Deleting server $id" && hcloud "servers/$id" -X DELETE >/dev/null
 done
 for i in $(seq 30); do
-  [ "$(hcloud 'servers?per_page=50' | jq --argjson cutoff "$cutoff" ".servers | $old | length")" = 0 ] && break
+  left=$(ids servers)
+  [ -z "$left" ] && break
   sleep 5
 done
 for kind in volumes firewalls ssh_keys; do
-  for id in $(hcloud "$kind?per_page=50" | jq -r --argjson cutoff "$cutoff" ".$kind | $old | .[].id"); do
+  found=$(ids "$kind")
+  for id in $found; do
     echo "Deleting ${kind%s} $id" && hcloud "$kind/$id" -X DELETE >/dev/null
   done
 done
 
 token=$(curl -fsS -d "client_id=$TAILSCALE_OAUTH_CLIENT_ID" -d "client_secret=$TAILSCALE_OAUTH_CLIENT_SECRET" \
   https://api.tailscale.com/api/v2/oauth/token | jq -r .access_token)
-for id in $(curl -fsS -H "Authorization: Bearer $token" https://api.tailscale.com/api/v2/tailnet/-/devices \
-  | jq -r --argjson cutoff "$cutoff" ".devices | map(select(.tags // [] | index(\"tag:agentbox\"))) | $old | .[].id"); do
+devices=$(curl -fsS -H "Authorization: Bearer $token" https://api.tailscale.com/api/v2/tailnet/-/devices)
+for id in $(jq -r --argjson cutoff "$cutoff" ".devices | map(select(.tags // [] | index(\"tag:agentbox\"))) | $old | .[].id" <<<"$devices"); do
   echo "Deleting device $id" && curl -fsS -H "Authorization: Bearer $token" -X DELETE "https://api.tailscale.com/api/v2/device/$id"
 done
