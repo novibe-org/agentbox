@@ -11,13 +11,18 @@ import { writeSshConfig } from './ssh.ts'
 
 export const providers = ['hetzner']
 
-export async function createHost(name: string, _provider: string): Promise<void> {
+export async function createHost(name: string, _provider: string, tailnet: boolean): Promise<void> {
   hostName(name)
   const d = join(hosts, name)
   if (existsSync(d)) fail(`Host ${name} already exists`)
   if (!process.env.HCLOUD_TOKEN) {
     fail(
       'agentbox needs an API token for a Hetzner project: create one in the Hetzner Console under Security > API tokens, with read and write access, and set HCLOUD_TOKEN',
+    )
+  }
+  if (tailnet && !(process.env.TAILSCALE_OAUTH_CLIENT_ID && process.env.TAILSCALE_OAUTH_CLIENT_SECRET)) {
+    fail(
+      'agentbox needs an OAuth client for your tailnet: create one in the Tailscale admin console under Settings > OAuth clients, with write access to auth keys for tag:agentbox, and set TAILSCALE_OAUTH_CLIENT_ID and TAILSCALE_OAUTH_CLIENT_SECRET',
     )
   }
   if (!onPath('tofu')) fail('agentbox needs OpenTofu to create hosts: https://opentofu.org/docs/intro/install/')

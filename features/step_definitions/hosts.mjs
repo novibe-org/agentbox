@@ -65,3 +65,17 @@ Then('the developer is told in turn that server {string} is being created, is up
     from += at + 1
   }
 })
+
+Given('the developer has not given agentbox access to their tailnet', function () {
+  delete this.env.TAILSCALE_OAUTH_CLIENT_ID
+  delete this.env.TAILSCALE_OAUTH_CLIENT_SECRET
+})
+
+When('the developer creates host {string} on Hetzner on their tailnet', function (host) {
+  this.agentbox('host', 'create', host, '--provider', 'hetzner', '--tailnet')
+})
+
+Then('the developer is told agentbox needs an OAuth client for their tailnet', function () {
+  assert.notEqual(this.result.status, 0)
+  assert.match(this.result.stderr, /needs an OAuth client for your tailnet/)
+})

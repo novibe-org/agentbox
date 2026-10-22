@@ -14,7 +14,9 @@ Environment:
   AGENTBOX_MACHINE  SSH host for sessions created without --host
   AGENTBOX_REPO     workspace repo to create sessions from
   AGENTBOX_PUBKEY   key to authorize in new sessions (default: ~/.ssh/id_ed25519.pub)
-  HCLOUD_TOKEN      API token of the Hetzner project that hosts are created in`,
+  HCLOUD_TOKEN      API token of the Hetzner project that hosts are created in
+  TAILSCALE_OAUTH_CLIENT_ID, TAILSCALE_OAUTH_CLIENT_SECRET
+                    OAuth client of the tailnet that --tailnet hosts join`,
   )
 
 program
@@ -46,7 +48,8 @@ program
   .description('create a host for sessions')
   .argument('<name>', 'host name: lowercase letters, digits and hyphens')
   .addOption(new Option('--provider <provider>', 'where to create it').choices(providers).makeOptionMandatory())
-  .action((name: string, options: { provider: string }) => createHost(name, options.provider))
+  .option('--tailnet', 'put the host on your tailnet, closed to the internet')
+  .action((name: string, options: { provider: string; tailnet?: boolean }) => createHost(name, options.provider, options.tailnet ?? false))
 
 program.command('proxy', { hidden: true }).argument('<host>').action(proxy)
 
