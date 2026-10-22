@@ -1,6 +1,6 @@
 import { Given, Then, When } from '@cucumber/cucumber'
 import assert from 'node:assert/strict'
-import { execFileSync } from 'node:child_process'
+import { execFileSync, spawnSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 
 function succeeded(result) {
@@ -27,6 +27,13 @@ Then("session {string} opens with {string} checked out by the workspace's setup"
   const origin = this.ssh(`${session}.agentbox`, `git -C /workspaces/${session}/projects/app remote get-url origin`)
   assert.equal(origin.status, 0, origin.stderr)
   assert.equal(origin.stdout.trim(), this.app)
+})
+
+Then("session {string} opens from a terminal app that runs ssh without the developer's PATH", function (session) {
+  succeeded(this.result)
+  const opened = spawnSync('ssh', [`${session}.agentbox`, 'echo opened'], { env: { ...this.env, PATH: '/usr/bin:/bin' }, encoding: 'utf8', input: '' })
+  assert.equal(opened.status, 0, opened.stderr)
+  assert.equal(opened.stdout.trim(), 'opened')
 })
 
 Then('the developer is told session {string} already exists on {string}', function (session, host) {
