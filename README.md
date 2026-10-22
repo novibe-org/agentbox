@@ -114,7 +114,7 @@ Good habits for a workspace repo:
 Install a release, and keep it on your `PATH`:
 
 ```bash
-curl -fsSL https://github.com/novibe-org/agentbox/releases/download/v0.2.0/agentbox-darwin-arm64 -o ~/.local/bin/agentbox
+curl -fsSL https://github.com/novibe-org/agentbox/releases/download/v0.2.1/agentbox-darwin-arm64 -o ~/.local/bin/agentbox
 chmod +x ~/.local/bin/agentbox
 ```
 
