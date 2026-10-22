@@ -32,32 +32,17 @@ export async function createHost(name: string, _provider: string, tailnet: boole
   run('ssh-keygen', ['-q', '-t', 'ed25519', '-N', '', '-C', '', '-f', join(d, 'ssh_host_ed25519_key')])
   const hostKey = readFileSync(join(d, 'ssh_host_ed25519_key.pub'), 'utf8').split(' ').slice(0, 2).join(' ')
   writeFileSync(join(d, 'known_hosts'), `${name} ${hostKey}\n`)
-  writeFileSync(
-    join(d, 'main.tf'),
-    `module "host" {
-  source         = "git::https://github.com/novibe-org/agentbox.git//modules/hetzner?ref=v${version}"
-  name           = "${name}"
-  ssh_public_key = file("\${path.module}/id_ed25519.pub")
-  host_key       = file("\${path.module}/ssh_host_ed25519_key")
-  host_key_pub   = file("\${path.module}/ssh_host_ed25519_key.pub")
-  release        = "${version}"
-}
-
-output "ipv4" {
-  value = module.host.ipv4
-}
-`,
-  )
+  writeFileSync(join(d, 'main.tf'), rootModule(name, tailnet))
   console.log(`Creating server ${name} on Hetzner`)
   run('tofu', [`-chdir=${d}`, 'init', '-input=false'], { stdout: 'ignore' })
   run('tofu', [`-chdir=${d}`, 'apply', '-input=false', '-auto-approve'], { stdout: 'ignore' })
-  const ip = run('tofu', [`-chdir=${d}`, 'output', '-raw', 'ipv4']).trim()
-  if (!/^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/.test(ip)) fail(`OpenTofu gave no IPv4 address for ${name}: ${ip}`)
-  console.log(`Server ${name} is up at ${ip}, setting it up`)
+  const address = run('tofu', [`-chdir=${d}`, 'output', '-raw', 'address']).trim()
+  if (!/^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$|^[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(address)) fail(`OpenTofu gave no address for ${name}: ${address}`)
+  console.log(`Server ${name} is up at ${address}, setting it up`)
   writeFileSync(
     join(d, 'ssh_config'),
     `Host ${name}
-  HostName ${ip}
+  HostName ${address}
   User agentbox
   IdentityFile ${d}/id_ed25519
   IdentitiesOnly yes
@@ -89,6 +74,44 @@ output "ipv4" {
     await sleep(5000)
   }
   fail(`Host ${name} was created but is not ready after 5 minutes: ssh ${name} to look`)
+}
+
+// AGENTBOX_MODULE_SOURCE points at a checkout's modules/, so a test run applies the modules it tests.
+function moduleSource(module: string): string {
+  const local = process.env.AGENTBOX_MODULE_SOURCE
+  return local ? join(local, module) : `git::https://github.com/novibe-org/agentbox.git//modules/${module}?ref=v${version}`
+}
+
+function rootModule(name: string, tailnet: boolean): string {
+  const host = `module "host" {
+  source         = "${moduleSource('hetzner')}"
+  name           = "${name}"
+  ssh_public_key = file("\${path.module}/id_ed25519.pub")
+  host_key       = file("\${path.module}/ssh_host_ed25519_key")
+  host_key_pub   = file("\${path.module}/ssh_host_ed25519_key.pub")
+  release        = "${version}"${tailnet ? '\n  tailnet_auth_key = module.tailnet.auth_key' : ''}
+}
+
+output "ipv4" {
+  value = module.host.ipv4
+}
+`
+  if (!tailnet) return `${host}
+output "address" {
+  value = module.host.ipv4
+}
+`
+  return `${host}
+module "tailnet" {
+  source    = "${moduleSource('tailscale')}"
+  name      = "${name}"
+  server_id = module.host.server_id
+}
+
+output "address" {
+  value = module.tailnet.dns_name
+}
+`
 }
 
 const rotation = `set -euo pipefail

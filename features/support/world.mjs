@@ -1,5 +1,5 @@
 import { After, AfterAll, Before, BeforeAll, setDefaultTimeout, setWorldConstructor } from '@cucumber/cucumber'
-import { execFileSync, spawnSync } from 'node:child_process'
+import { execFileSync, spawn, spawnSync } from 'node:child_process'
 import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
@@ -10,9 +10,13 @@ const repo = resolve(import.meta.dirname, '../..')
 const home = homedir()
 const fixtures = mkdtempSync(join(tmpdir(), 'agentbox-fixtures-'))
 chmodSync(fixtures, 0o755)
-const workspace = `file://${fixtures}/acme/workspace.git`
-const app = `file://${fixtures}/acme/app.git`
+// A cloud run creates real hosts, which reach the fixtures from the runner over the tailnet.
+const cloud = process.env.AGENTBOX_CLOUD === '1'
+const origin = cloud ? `git://${execFileSync('tailscale', ['ip', '-4'], { encoding: 'utf8' }).trim()}` : `file://${fixtures}`
+const workspace = `${origin}/acme/workspace.git`
+const app = `${origin}/acme/app.git`
 let agent
+let daemon
 
 BeforeAll(() => {
   if (process.env.AGENTBOX_E2E !== '1') {
@@ -33,7 +37,7 @@ BeforeAll(() => {
         image: 'node:22-bookworm-slim',
         remoteUser: 'node',
         features: { './agentbox': {} },
-        mounts: [{ source: fixtures, target: fixtures, type: 'bind' }],
+        mounts: cloud ? [] : [{ source: fixtures, target: fixtures, type: 'bind' }],
         postCreateCommand: 'bash .devcontainer/setup.sh',
       },
       null,
@@ -43,6 +47,9 @@ BeforeAll(() => {
     '.gitignore': 'projects/\n',
   })
   execFileSync('sudo', ['chown', '-R', '1000:1000', fixtures])
+  if (cloud) {
+    daemon = spawn('git', ['daemon', '--reuseaddr', '--export-all', `--base-path=${fixtures}`, `--listen=${origin.slice('git://'.length)}`, fixtures], { stdio: 'ignore' })
+  }
 })
 
 function repository(name, files) {
@@ -60,6 +67,7 @@ function repository(name, files) {
 }
 
 AfterAll(() => {
+  daemon?.kill()
   if (agent) execFileSync('ssh-agent', ['-k'], { env: { ...process.env, ...agent }, stdio: 'ignore' })
   execFileSync('sudo', ['rm', '-rf', fixtures])
 })
@@ -75,8 +83,17 @@ function reset() {
   rmSync(join(home, '.ssh/cm'), { recursive: true, force: true })
 }
 
+// A real host is destroyed before reset deletes the OpenTofu state that knows it.
+function destroy() {
+  const hosts = join(home, '.agentbox/hosts')
+  for (const host of existsSync(hosts) ? readdirSync(hosts) : []) {
+    spawnSync('tofu', [`-chdir=${join(hosts, host)}`, 'destroy', '-input=false', '-auto-approve'], { stdio: 'inherit' })
+  }
+}
+
 Before(reset)
 After(function ({ result }) {
+  if (cloud) destroy()
   if (result?.status === 'FAILED') {
     for (const host of this.testHosts()) {
       const logs = spawnSync('docker', ['logs', '--tail', '80', host], { encoding: 'utf8' })
@@ -90,11 +107,12 @@ class World {
   constructor() {
     this.workspace = workspace
     this.app = app
+    this.cloud = cloud
     this.env = {
       ...process.env,
       ...agent,
-      PATH: `${repo}/test/bin:${repo}/dist:${process.env.PATH}`,
-      HCLOUD_TOKEN: 'test-token',
+      PATH: cloud ? `${repo}/dist:${process.env.PATH}` : `${repo}/test/bin:${repo}/dist:${process.env.PATH}`,
+      HCLOUD_TOKEN: cloud ? process.env.HCLOUD_TOKEN : 'test-token',
       AGENTBOX_TEST_FIXTURES: fixtures,
     }
     delete this.env.AGENTBOX_MACHINE

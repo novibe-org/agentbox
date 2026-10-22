@@ -1,5 +1,9 @@
 import { Given, Then, When } from '@cucumber/cucumber'
 import assert from 'node:assert/strict'
+import { spawnSync } from 'node:child_process'
+import { connect } from 'node:net'
+import { homedir } from 'node:os'
+import { join } from 'node:path'
 
 function succeeded(result) {
   assert.equal(result.status, 0, `agentbox failed:\n${result.stdout}\n${result.stderr}`)
@@ -78,4 +82,22 @@ When('the developer creates host {string} on Hetzner on their tailnet', function
 Then('the developer is told agentbox needs an OAuth client for their tailnet', function () {
   assert.notEqual(this.result.status, 0)
   assert.match(this.result.stderr, /needs an OAuth client for your tailnet/)
+})
+
+// Only a cloud run has a real tailnet and real hosts; elsewhere the scenario is skipped.
+Given('the developer has given agentbox access to their tailnet', function () {
+  if (!this.cloud) return 'skipped'
+  assert.ok(this.env.TAILSCALE_OAUTH_CLIENT_ID && this.env.TAILSCALE_OAUTH_CLIENT_SECRET, 'a cloud run needs the test tailnet\'s OAuth client')
+})
+
+Then('nothing on the internet outside the tailnet can connect to {string}', async function (host) {
+  const ip = spawnSync('tofu', [`-chdir=${join(homedir(), '.agentbox/hosts', host)}`, 'output', '-raw', 'ipv4'], { env: this.env, encoding: 'utf8' }).stdout.trim()
+  assert.match(ip, /^\d+\.\d+\.\d+\.\d+$/)
+  const connected = await new Promise((resolve) => {
+    const socket = connect({ host: ip, port: 22, timeout: 10000 })
+    socket.on('connect', () => (socket.destroy(), resolve(true)))
+    socket.on('timeout', () => (socket.destroy(), resolve(false)))
+    socket.on('error', () => resolve(false))
+  })
+  assert.equal(connected, false, `${host}'s public address ${ip} accepts SSH`)
 })
