@@ -2,9 +2,10 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 
 import { join } from 'node:path'
 import { home, hosts } from './paths.ts'
 
+// Apps such as cmux run ssh without the shell's PATH, so the proxy names this binary by its full path.
 const sessionsBlock = `Host *.agentbox
   User node
-  ProxyCommand agentbox proxy %h
+  ProxyCommand "${process.execPath}" proxy %h
   ForwardAgent yes
   StrictHostKeyChecking no
   UserKnownHostsFile /dev/null

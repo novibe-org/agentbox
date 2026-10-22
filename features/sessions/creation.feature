@@ -15,6 +15,11 @@ Feature: Session creation
     Then the developer is told session "fix-login" already exists on "box2"
     And session "fix-login" opens with its note intact
 
+  Scenario: A session opens from an app that does not have agentbox on its PATH
+    Given the developer has host "box2"
+    When the developer starts session "fix-login" from "acme/workspace" on "box2"
+    Then session "fix-login" opens from a terminal app that runs ssh without the developer's PATH
+
   @backlog
   Scenario: A session whose setup fails tells the developer why
     Given the setup of "acme/workspace" fails cloning "acme/app"
