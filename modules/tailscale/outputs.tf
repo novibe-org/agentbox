@@ -4,5 +4,5 @@ output "auth_key" {
 }
 
 output "dns_name" {
-  value = trimsuffix(data.tailscale_device.host.name, ".")
+  value = one([for d in data.tailscale_devices.host.devices : trimsuffix(d.name, ".") if d.id == data.tailscale_device.host.id])
 }

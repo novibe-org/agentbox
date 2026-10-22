@@ -27,3 +27,9 @@ data "tailscale_device" "host" {
   wait_for   = "600s"
   depends_on = [terraform_data.server]
 }
+
+# A device looked up by hostname has no full name, so the device list supplies it.
+data "tailscale_devices" "host" {
+  name_prefix = "${var.name}."
+  depends_on  = [data.tailscale_device.host]
+}
