@@ -7,7 +7,7 @@ deployment {
   }
   node hetznerCloud 'Hetzner Cloud' {
     node server 'Host' {
-      description 'Server with the agentbox user, Docker, Node, the Dev Container CLI and its volume at /var/lib/agentbox, set up by the Hetzner module\'s cloud-init, which installs agentboxd of the CLI\'s version from its release and runs it with systemd.'
+      description 'Server with the agentbox user, Docker, Node, the Dev Container CLI and its volume at /var/lib/agentbox, set up by the Hetzner module\'s cloud-init, which installs agentboxd of the CLI\'s version from its release and runs it with systemd. A host on the tailnet joins it with tailscaled, whose state is on the volume, and its firewall opens no port.'
       instanceOf agentbox.agentboxd
       instanceOf agentbox.session
     }

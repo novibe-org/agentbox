@@ -1,7 +1,7 @@
 views {
   view context {
     title 'System context'
-    include developer, agentbox, hetzner, github
+    include developer, agentbox, hetzner, tailscale, github
   }
 
   view containers of agentbox {
@@ -10,13 +10,16 @@ views {
   }
 
   dynamic view createHost {
-    title 'Create a host on Hetzner'
-    developer -> agentbox.cli 'agentbox host create box2 --provider hetzner'
+    title 'Create a host on Hetzner, on the developer\'s tailnet or open to the internet'
+    developer -> agentbox.cli 'agentbox host create box2 --provider hetzner [--tailnet]'
     agentbox.cli -> agentbox.hostRegistry 'checks no host is named box2'
-    agentbox.cli -> agentbox.hetznerModule 'tofu apply'
-    agentbox.hetznerModule -> hetzner 'creates server, volume and firewall'
+    agentbox.cli -> agentbox.tailscaleModule 'with --tailnet: tofu apply'
+    agentbox.tailscaleModule -> tailscale 'creates a single-use auth key tagged tag:agentbox'
+    agentbox.cli -> agentbox.hetznerModule 'tofu apply, with the auth key if there is one'
+    agentbox.hetznerModule -> hetzner 'creates server, volume and firewall, which opens no port for a host on the tailnet'
+    agentbox.tailscaleModule -> tailscale 'with --tailnet: waits for box2 to join, reads its MagicDNS name'
     agentbox.cli -> agentbox.hostRegistry 'keeps box2\'s state'
-    agentbox.cli -> agentbox.sshConfig 'writes box2\'s entry'
+    agentbox.cli -> agentbox.sshConfig 'writes box2\'s entry, by its MagicDNS name or its IP address'
     agentbox.cli -> agentbox.agentboxd 'waits until box2 reports healthy'
   }
 
@@ -32,26 +35,6 @@ views {
     agentbox.session -> github 'clones acme/app'
     agentbox.cli -> agentbox.agentboxd 'waits until fix-login is set up'
     agentbox.cli -> agentbox.session 'opens fix-login'
-  }
-
-  dynamic view refuseTakenSession {
-    title 'Refuse a session id that is taken'
-    developer -> agentbox.cli 'agentbox new fix-login acme/workspace --host box3'
-    agentbox.cli -> agentbox.sessionRegistry 'finds fix-login on box2'
-    agentbox.cli -> developer 'session fix-login already exists on box2'
-  }
-
-  dynamic view refuseWithoutAccess {
-    title 'Refuse a host without Hetzner access'
-    developer -> agentbox.cli 'agentbox host create box2 --provider hetzner'
-    agentbox.cli -> developer 'needs an API token for a Hetzner project'
-  }
-
-  dynamic view refuseTakenName {
-    title 'Refuse a host name that is taken'
-    developer -> agentbox.cli 'agentbox host create box2 --provider hetzner'
-    agentbox.cli -> agentbox.hostRegistry 'finds a host named box2'
-    agentbox.cli -> developer 'host box2 already exists'
   }
 
   deployment view deployment {
