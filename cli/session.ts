@@ -11,14 +11,11 @@ function machine(): string {
   return process.env.AGENTBOX_MACHINE || fail('Set AGENTBOX_MACHINE to the SSH host that runs sessions, or pass --host')
 }
 
-// The host a session was created on; sessions from before --host have no record.
 function sessionHost(id: string): string {
   const record = join(sessions, id)
   return existsSync(record) ? readFileSync(record, 'utf8').trim() : machine()
 }
 
-// A workspace repo as the host clones it: GitHub over HTTPS, so no forwarded agent is
-// needed. owner/name and GitHub URLs may name a branch as @branch.
 export function repoSource(spec: string): { repository: string; branch?: string } {
   const github = spec.match(/^(?:https:\/\/github\.com\/|git@github\.com:|ssh:\/\/git@github\.com\/)?([\w.-]+\/[\w.-]+?)(?:\.git)?(?:@([^@]+))?$/)
   if (github?.[1]) {
@@ -39,8 +36,6 @@ export async function newSession(id: string, repo: string | undefined, host: str
   const m = host ? hostName(host) : machine()
   const source = repoSource(repo || process.env.AGENTBOX_REPO || run('git', ['remote', 'get-url', 'origin']).trim())
   const authorizedKey = readFileSync(process.env.AGENTBOX_PUBKEY || join(home, '.ssh/id_ed25519.pub'), 'utf8').trim()
-  // Writing the record reserves the id, failing if a session already has it. A refused
-  // session releases it; one whose outcome is unknown keeps it, for rm to clear.
   mkdirSync(sessions, { recursive: true })
   try {
     writeFileSync(record, `${m}\n`, { flag: 'wx' })
@@ -56,7 +51,6 @@ export async function newSession(id: string, repo: string | undefined, host: str
   if (created.status === 409) refuse(`Session ${id} already exists on ${m}`)
   if (created.status !== 202) refuse(`agentboxd on ${m} refused session ${id}: ${(created.body as Refusal).error}`)
 
-  // The host sets the session up whatever happens here; this only waits to open it.
   console.log(`Setting up ${id} on ${m}`)
   for (;;) {
     await sleep(2000)
@@ -93,8 +87,6 @@ export async function removeSession(id: string): Promise<void> {
   rmSync(join(sessions, id), { force: true })
 }
 
-// ssh's ProxyCommand for <id>.agentbox: starts the container if the host rebooted
-// without it, then hands the connection to the container's sshd.
 export function proxy(target: string): never {
   const id = sessionId(target.replace(/\.agentbox$/, ''))
   exec('ssh', [

@@ -8,7 +8,6 @@ import { fail } from '../lib/process.ts'
 
 export type Response<T> = { status: number; body: T }
 
-// One HTTP request to agentboxd on the host, over `ssh <host> agentboxd dial-stdio`.
 export function request<T>(host: string, method: string, path: string, body?: unknown, ssh: string[] = []): Promise<Response<T>> {
   return new Promise((resolve, reject) => {
     const child = spawn('ssh', [...ssh, host, 'agentboxd', 'dial-stdio'], { stdio: ['pipe', 'pipe', 'pipe'] })
@@ -23,7 +22,6 @@ export function request<T>(host: string, method: string, path: string, body?: un
         path,
         host: 'agentboxd',
         headers,
-        // Node accepts a pair of streams here; its types only know web streams.
         createConnection: () => Duplex.from({ writable: child.stdin, readable: child.stdout } as never) as Socket,
       },
       (res) => {
@@ -52,7 +50,6 @@ export async function call<T>(host: string, method: string, path: string, body?:
   }
 }
 
-// The CLI and agentboxd change together, so a host on another version is refused.
 export async function connect(host: string): Promise<void> {
   const { body } = await call<Health>(host, 'GET', '/health')
   if (body?.version !== version) {

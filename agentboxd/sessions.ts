@@ -6,11 +6,8 @@ import { onPath } from '../lib/process.ts'
 
 export const root = '/var/lib/agentbox'
 const sessionsDir = join(root, 'sessions')
-// Mounted into every session by the Feature, so they must exist before one is built.
 const shared = ['claude', 'gh', 'git', 'pnpm-store']
 
-// Each session's record, <id>.json next to its clone, holds whether its setup finished
-// or why it failed; the container and the clone hold the rest. Only agentboxd writes it.
 const recordPath = (id: string) => join(sessionsDir, `${id}.json`)
 
 function readRecord(id: string): Session | undefined {
@@ -27,10 +24,8 @@ function writeRecord(session: Session): void {
   renameSync(`${path}.tmp`, path)
 }
 
-// Sessions this agentboxd is setting up right now.
 const creating = new Set<string>()
 
-// A setup that agentboxd did not live to finish has failed.
 export function recoverSessions(): void {
   mkdirSync(sessionsDir, { recursive: true })
   for (const file of readdirSync(sessionsDir).filter((name) => name.endsWith('.json'))) {
@@ -41,7 +36,6 @@ export function recoverSessions(): void {
 
 type Result = { status: number; stdout: string; stderr: string }
 
-// Runs a command without blocking the API; its errors go to agentboxd's log too.
 export function execute(command: string, args: string[], { input = '', env = {} } = {}): Promise<Result> {
   return new Promise((resolve) => {
     const child = spawn(command, args, { env: { ...process.env, ...env } })
@@ -58,8 +52,6 @@ export function execute(command: string, args: string[], { input = '', env = {} 
   })
 }
 
-// Why a command failed: the Dev Container CLI ends its output with a JSON outcome, other
-// commands with their last line of errors.
 function reason({ stdout, stderr }: Result): string {
   try {
     const outcome = JSON.parse(stdout.trim().split('\n').at(-1) ?? '')
@@ -96,11 +88,9 @@ export async function getSession(id: string): Promise<Session | undefined> {
   return { ...session, state: c ? (await run('docker', ['inspect', '-f', '{{.State.Status}}', c])).trim() : 'missing' }
 }
 
-// Accepts the session and creates it in the background; false if the id is taken.
 export async function startSession(request: SessionRequest): Promise<Session | false> {
   const session: Session = { id: request.id, status: 'creating' }
   mkdirSync(sessionsDir, { recursive: true })
-  // Writing the record reserves the id, failing if a session already has it.
   try {
     writeFileSync(recordPath(request.id), JSON.stringify(session), { flag: 'wx' })
   } catch (error) {
@@ -131,7 +121,6 @@ export async function startSession(request: SessionRequest): Promise<Session | f
   return session
 }
 
-// GitHub over HTTPS with the host's GitHub login if it has one, else without credentials.
 function credentials(): string[] {
   if (!onPath('gh')) return []
   return ['-c', 'credential.https://github.com.helper=', '-c', 'credential.https://github.com.helper=!gh auth git-credential']
@@ -140,14 +129,10 @@ function credentials(): string[] {
 async function createSession({ id, repository, branch, authorizedKey }: SessionRequest): Promise<void> {
   for (const dir of [...shared, 'sessions']) mkdirSync(join(root, dir), { recursive: true })
   const dir = join(sessionsDir, id)
-  // Clone fresh every time. A clone left by an earlier session may carry changes its
-  // agent made, and devcontainer.json's initializeCommand runs on the host.
   rmSync(dir, { recursive: true, force: true })
   await run('git', [...credentials(), 'clone', '-q', ...(branch ? ['-b', branch] : []), '--', repository, dir], {
     env: { GIT_TERMINAL_PROMPT: '0', GH_CONFIG_DIR: join(root, 'gh') },
   })
-  // The Dev Container CLI writes a lockfile into the clone unless the repo has one, which
-  // would leave every session with uncommitted work. Use a committed one; else write none.
   const locked = existsSync(join(dir, '.devcontainer/devcontainer-lock.json')) || existsSync(join(dir, '.devcontainer-lock.json'))
   const workspace = ['--workspace-folder', dir, '--id-label', `agentbox.session=${id}`]
   await run('devcontainer', ['up', ...workspace, '--skip-post-create', ...(locked ? [] : ['--no-lockfile'])])
@@ -159,10 +144,6 @@ async function createSession({ id, repository, branch, authorizedKey }: SessionR
   await run('devcontainer', ['run-user-commands', ...workspace])
 }
 
-// The workspace repo and each repo under projects/ with uncommitted or unpushed work.
-// git runs in the session's container: a repo's own config, which the session's agent
-// can write, may run commands, and must never do so on the host. A repo git cannot
-// check counts as unpushed, so its work is never deleted unseen.
 async function unpushedWork(c: string, id: string): Promise<string[]> {
   await run('docker', ['start', c])
   const workspace = `/workspaces/${id}`
@@ -183,11 +164,9 @@ export async function deleteSession(id: string): Promise<'deleted' | 'missing' |
   if (creating.has(id)) return { error: `Session ${id} is being set up` }
   const c = await container(id)
   if (!c && !readRecord(id)) return 'missing'
-  // Without a container no agent ran, so a clone left by a failed setup holds no work.
   if (c) {
     const unpushed = await unpushedWork(c, id)
     if (unpushed.length) return { error: `Session ${id} has unpushed or uncommitted work`, unpushed }
-    // The Dev Container CLI builds <name>-features, then <name>-features-uid on top for the container.
     const image = (await run('docker', ['inspect', '-f', '{{.Config.Image}}', c])).trim()
     await run('docker', ['rm', '-f', c])
     await execute('docker', ['rmi', image, image.replace(/-uid$/, '')])

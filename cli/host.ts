@@ -11,7 +11,6 @@ import { writeSshConfig } from './ssh.ts'
 
 export const providers = ['hetzner']
 
-// The provider is one of providers; hetzner is the only one so far.
 export async function createHost(name: string, _provider: string): Promise<void> {
   hostName(name)
   const d = join(hosts, name)
@@ -25,8 +24,6 @@ export async function createHost(name: string, _provider: string): Promise<void>
 
   mkdirSync(d, { recursive: true })
   run('ssh-keygen', ['-q', '-t', 'ed25519', '-N', '', '-C', `agentbox-${name}`, '-f', join(d, 'id_ed25519')])
-  // The server's first host key is made here, so the first connection is already
-  // pinned; it is replaced once that connection works, as cloud-init data stays readable.
   run('ssh-keygen', ['-q', '-t', 'ed25519', '-N', '', '-C', '', '-f', join(d, 'ssh_host_ed25519_key')])
   const hostKey = readFileSync(join(d, 'ssh_host_ed25519_key.pub'), 'utf8').split(' ').slice(0, 2).join(' ')
   writeFileSync(join(d, 'known_hosts'), `${name} ${hostKey}\n`)
@@ -69,9 +66,6 @@ output "ipv4" {
   )
   writeSshConfig()
 
-  // The server answers SSH before cloud-init has set it up and started agentboxd, which
-  // reports when the host can run sessions. Until the host key is rotated, no connection
-  // is shared.
   const once = ['-o', 'ConnectTimeout=5', '-o', 'ControlPath=none']
   for (let i = 0; i < 60; i++) {
     const health = await request<Health>(name, 'GET', '/health', undefined, once).catch(() => undefined)
@@ -85,8 +79,6 @@ output "ipv4" {
   fail(`Host ${name} was created but is not ready after 5 minutes: ssh ${name} to look`)
 }
 
-// Replaces the host key that went through cloud-init, whose data stays readable on the
-// server, and prints the new public key.
 const rotation = `set -euo pipefail
 k=/etc/ssh/ssh_host_ed25519_key
 rm -f "$k.new" "$k.new.pub"

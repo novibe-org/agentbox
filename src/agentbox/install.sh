@@ -26,7 +26,6 @@ curl -LsSfo /tmp/yazi.zip "https://github.com/sxyazi/yazi/releases/download/v$YA
 unzip -joq /tmp/yazi.zip yazi-x86_64-unknown-linux-musl/yazi yazi-x86_64-unknown-linux-musl/ya -d "$BIN" && rm /tmp/yazi.zip
 if command -v corepack >/dev/null; then corepack enable --install-directory "$BIN" pnpm; fi
 
-# Claude Code's managed skills folder sits outside the /agentbox/claude mount, so the build can fill it.
 SKILLS=/etc/claude-code/.claude/skills
 mkdir -p "$SKILLS/security-audit"
 curl -LsSf "https://github.com/cloudflare/security-audit-skill/archive/$SECURITY_AUDIT.tar.gz" |
@@ -54,7 +53,6 @@ git config --system interactive.diffFilter "delta --color-only"
 git config --system delta.navigate true
 git config --system delta.line-numbers true
 git config --system merge.conflictStyle zdiff3
-# GitHub over HTTPS with the shared GitHub login, so setup and pushes need no forwarded agent.
 git config --system url."https://github.com/".insteadOf "git@github.com:"
 git config --system --add url."https://github.com/".insteadOf "ssh://git@github.com/"
 git config --system credential."https://github.com".helper '!f() { command -v gh >/dev/null || exit 0; exec gh auth git-credential "$@"; }; f'

@@ -48,7 +48,6 @@ program
   .addOption(new Option('--provider <provider>', 'where to create it').choices(providers).makeOptionMandatory())
   .action((name: string, options: { provider: string }) => createHost(name, options.provider))
 
-// ssh's ProxyCommand for <id>.agentbox, written to ~/.ssh/agentbox.conf.
 program.command('proxy', { hidden: true }).argument('<host>').action(proxy)
 
 try {

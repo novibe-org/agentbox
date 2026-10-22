@@ -11,8 +11,6 @@ const sessionsBlock = `Host *.agentbox
   LogLevel error
 `
 
-// ~/.ssh/agentbox.conf holds every host and the way into sessions; ~/.ssh/config
-// includes it first, so its entries apply before the developer's own.
 export function writeSshConfig(): void {
   const dir = join(home, '.ssh')
   mkdirSync(join(dir, 'cm'), { recursive: true, mode: 0o700 })

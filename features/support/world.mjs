@@ -14,8 +14,6 @@ const workspace = `file://${fixtures}/acme/workspace.git`
 const app = `file://${fixtures}/acme/app.git`
 let agent
 
-// The scenarios create hosts from the real ~/.agentbox and ~/.ssh, since ssh reads
-// the user's home whatever HOME says. Only a throwaway machine may run them.
 BeforeAll(() => {
   if (process.env.AGENTBOX_E2E !== '1') {
     throw new Error('The scenarios delete ~/.agentbox and the Docker containers of agentbox sessions. Set AGENTBOX_E2E=1 on a throwaway machine, as CI does.')
@@ -28,8 +26,6 @@ BeforeAll(() => {
   )
   execFileSync('ssh-add', ['-q', key], { env: { ...process.env, ...agent } })
 
-  // acme/app, a project the workspace's setup clones, and acme/workspace itself. Sessions
-  // see the fixtures at the same path, as the test host does.
   repository('acme/app', { 'README.md': '# acme app\n' })
   repository('acme/workspace', {
     '.devcontainer/devcontainer.json': JSON.stringify(
@@ -46,12 +42,9 @@ BeforeAll(() => {
     '.devcontainer/setup.sh': `[ -d projects/app/.git ] || git clone -q ${app} projects/app\n`,
     '.gitignore': 'projects/\n',
   })
-  // git in a session clones only from repos its own user, uid 1000, owns.
   execFileSync('sudo', ['chown', '-R', '1000:1000', fixtures])
 })
 
-// A bare repo at <fixtures>/<name>.git with the files in one commit; the workspace also
-// carries the Feature under test.
 function repository(name, files) {
   const tree = join(fixtures, 'tree', name)
   for (const [path, content] of Object.entries(files)) {
@@ -83,7 +76,6 @@ function reset() {
 }
 
 Before(reset)
-// A failed scenario shows what agentboxd logged on each test host.
 After(function ({ result }) {
   if (result?.status === 'FAILED') {
     for (const host of this.testHosts()) {

@@ -7,20 +7,17 @@ on:
 
 jobs:
   release:
-    # macOS, so the macOS binaries can be signed and one of them run before release.
     runs-on: macos-latest
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v4
-        # npm ci runs dependencies' install scripts; they get no token that can push.
         with:
           persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
-      # The CLI fetches its modules, and hosts their agentboxd, at the tag of its own version.
       - id: version
         run: |
           tag=v$(node -p 'require("./package.json").version')
@@ -34,7 +31,6 @@ jobs:
             npx bun build cli/main.ts --compile --target="bun-$target" --outfile "dist/agentbox-$target"
           done
           npx bun build agentboxd/main.ts --compile --target=bun-linux-x64 --outfile dist/agentboxd-linux-x64
-          # Apple silicon runs signed binaries only; an ad hoc signature is enough.
           codesign --force --sign - dist/agentbox-darwin-arm64 dist/agentbox-darwin-x64
           dist/agentbox-darwin-arm64 --version
       - if: steps.version.outputs.new == 'true'

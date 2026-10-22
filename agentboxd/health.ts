@@ -4,7 +4,6 @@ import type { Check, Health } from '../lib/api.ts'
 import { execute, root } from './sessions.ts'
 
 function mounted(path: string): Check {
-  // In /proc/self/mountinfo the fifth field is the mount point.
   const points = readFileSync('/proc/self/mountinfo', 'utf8')
     .split('\n')
     .map((line) => line.split(' ')[4])

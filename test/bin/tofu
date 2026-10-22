@@ -1,6 +1,4 @@
 #!/usr/bin/env bash
-# Stands in for tofu running the Hetzner module: apply starts a test host container
-# named after the host's directory, and output gives its address.
 set -euo pipefail
 repo=$(cd "$(dirname "$0")/../.." && pwd)
 d=${1#-chdir=}

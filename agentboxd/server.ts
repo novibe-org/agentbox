@@ -73,7 +73,6 @@ export function serve(socket: string): void {
       send(res, 500, { error: error.message })
     })
   })
-  // Only the agentbox user, who SSH logs in as, may connect.
   server.listen(socket, () => {
     chmodSync(socket, 0o600)
     console.log(`agentboxd ${version} on ${socket}`)
