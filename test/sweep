@@ -2,6 +2,10 @@
 # Deletes what test runs left in the test Hetzner project and the test tailnet, older than $1 minutes.
 # Both accounts hold nothing but tests, so everything in them may go.
 set -euo pipefail
+if [ "${GITHUB_ACTIONS:-}" != true ]; then
+  echo "test/sweep deletes everything its tokens reach, so it runs only in the cloud and sweep workflows" >&2
+  exit 1
+fi
 cutoff=$(date -u -d "-${1:-0} minutes" +%s)
 old='[.[] | select((.created | sub("\\.[0-9]+"; "") | sub("\\+00:00$"; "Z") | fromdateiso8601) <= $cutoff)]'
 
