@@ -40,7 +40,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
       - if: steps.version.outputs.new == 'true'
         run: |
-          git clone --depth 1 "https://x-access-token:$GH_TOKEN@github.com/novibe-org/homebrew-tap.git" tap
+          key=$RUNNER_TEMP/tap_key
+          printf '%s\n' "$DEPLOY_KEY" > "$key" && chmod 600 "$key"
+          echo "github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl" > "$RUNNER_TEMP/known_hosts"
+          export GIT_SSH_COMMAND="ssh -i $key -o IdentitiesOnly=yes -o UserKnownHostsFile=$RUNNER_TEMP/known_hosts"
+          git clone --depth 1 git@github.com:novibe-org/homebrew-tap.git tap
           version=${TAG#v}
           url=https://github.com/novibe-org/agentbox/releases/download/$TAG
           sha() { shasum -a 256 "dist/agentbox-$1" | cut -d' ' -f1; }
@@ -86,4 +90,4 @@ jobs:
           git push
         env:
           TAG: ${{ steps.version.outputs.tag }}
-          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          DEPLOY_KEY: ${{ secrets.HOMEBREW_TAP_DEPLOY_KEY }}
