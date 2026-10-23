@@ -16,11 +16,14 @@ resource "hcloud_ssh_key" "host" {
 resource "hcloud_firewall" "host" {
   name = "agentbox-${var.name}"
 
-  rule {
-    direction  = "in"
-    protocol   = "tcp"
-    port       = "22"
-    source_ips = ["0.0.0.0/0", "::/0"]
+  dynamic "rule" {
+    for_each = var.tailnet_auth_key == null ? [22] : []
+    content {
+      direction  = "in"
+      protocol   = "tcp"
+      port       = tostring(rule.value)
+      source_ips = ["0.0.0.0/0", "::/0"]
+    }
   }
 }
 
@@ -39,11 +42,13 @@ resource "hcloud_server" "host" {
   ssh_keys     = [hcloud_ssh_key.host.id]
   firewall_ids = [hcloud_firewall.host.id]
   user_data = templatefile("${path.module}/cloud-init.yaml.tftpl", {
-    ssh_public_key = trimspace(var.ssh_public_key)
-    volume_id      = hcloud_volume.state.id
-    host_key       = trimspace(var.host_key)
-    host_key_pub   = trimspace(var.host_key_pub)
-    release        = var.release
+    ssh_public_key   = trimspace(var.ssh_public_key)
+    volume_id        = hcloud_volume.state.id
+    host_key         = trimspace(var.host_key)
+    host_key_pub     = trimspace(var.host_key_pub)
+    release          = var.release
+    name             = var.name
+    tailnet_auth_key = var.tailnet_auth_key == null ? "" : var.tailnet_auth_key
   })
 }
 

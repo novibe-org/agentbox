@@ -38,3 +38,31 @@ Feature: Host provisioning
     Given the developer has created host "box2" as their first host
     When the developer starts session "fix-login" from "acme/workspace" without naming a host
     Then session "fix-login" opens on "box2"
+
+  @id:host-on-tailnet
+  Rule: A host on the developer's tailnet takes no connection from the internet
+
+    Scenario: A host on the developer's tailnet is closed to the internet
+      Given the developer has given agentbox access to their tailnet
+      When the developer creates host "box2" on Hetzner on their tailnet
+      Then session "fix-login" started on "box2" from "acme/workspace" opens with the workspace checked out
+      And nothing on the internet outside the tailnet can connect to "box2"
+
+    Scenario: Without tailnet access no tailnet host is created
+      Given the developer has not given agentbox access to their tailnet
+      When the developer creates host "box2" on Hetzner on their tailnet
+      Then the developer is told agentbox needs an OAuth client for their tailnet
+      And the developer has no hosts
+
+    @backlog
+    Scenario: A host open to the internet moves onto the developer's tailnet
+      Given the developer has host "box2" with session "fix-login" on it, open to the internet
+      When the developer moves "box2" onto their tailnet
+      Then session "fix-login" on "box2" opens with its work intact
+      And nothing on the internet outside the tailnet can connect to "box2"
+
+    @backlog
+    Scenario: The sessions on a tailnet host cannot reach the developer's other devices
+      Given the developer has host "box2" on their tailnet, and their laptop "mbp" is on it too
+      When session "fix-login" on "box2" tries to connect to "mbp"
+      Then the connection is refused

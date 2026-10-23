@@ -49,6 +49,18 @@ write_files:
       PATH=/opt/node/bin:$PATH npm i -g -s @devcontainers/cli@0.89.0
       curl -fsSLo /usr/local/bin/agentboxd https://github.com/novibe-org/agentbox/releases/download/v${release}/agentboxd-linux-x64
       chmod 755 /usr/local/bin/agentboxd
+%{ if tailnet_auth_key != "" ~}
+  - path: /usr/local/sbin/agentbox-join-tailnet
+    permissions: "0700"
+    content: |
+      #!/bin/sh
+      set -e
+      mkdir -p /var/lib/agentbox/tailscale /var/lib/tailscale
+      grep -q " /var/lib/tailscale " /etc/fstab || echo "/var/lib/agentbox/tailscale /var/lib/tailscale none bind 0 0" >> /etc/fstab
+      mountpoint -q /var/lib/tailscale || mount /var/lib/tailscale
+      curl -fsSL https://tailscale.com/install.sh | sh
+      tailscale up --auth-key=${tailnet_auth_key} --hostname=${name}
+%{ endif ~}
   - path: /etc/systemd/system/agentboxd.service
     content: |
       [Unit]
@@ -70,6 +82,9 @@ write_files:
 runcmd:
   - usermod -aG docker agentbox
   - /usr/local/sbin/agentbox-mount-volume
+%{ if tailnet_auth_key != "" ~}
+  - /usr/local/sbin/agentbox-join-tailnet
+%{ endif ~}
   - /usr/local/sbin/agentbox-install
   - systemctl daemon-reload
   - systemctl enable --now agentboxd

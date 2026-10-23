@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+set -euo pipefail
+shopt -s inherit_errexit
+if [ "${GITHUB_ACTIONS:-}" != true ]; then
+  echo "test/sweep deletes everything its tokens reach, so it runs only in the cloud and sweep workflows" >&2
+  exit 1
+fi
+cutoff=$(date -u -d "-${1:-0} minutes" +%s)
+old='[.[] | select((.created | sub("\\.[0-9]+"; "") | sub("\\+00:00$"; "Z") | fromdateiso8601) <= $cutoff)]'
+
+hcloud() {
+  curl -fsS -H "Authorization: Bearer $HCLOUD_TOKEN" "${@:2}" "https://api.hetzner.cloud/v1/$1"
+}
+
+ids() {
+  local listing
+  listing=$(hcloud "$1?per_page=50")
+  jq -r --argjson cutoff "$cutoff" ".$1 | $old | .[].id" <<<"$listing"
+}
+
+servers=$(ids servers)
+for id in $servers; do
+  echo "Deleting server $id" && hcloud "servers/$id" -X DELETE >/dev/null
+done
+for i in $(seq 30); do
+  left=$(ids servers)
+  [ -z "$left" ] && break
+  sleep 5
+done
+# A firewall stays attached for a while after its server is gone.
+for kind in volumes firewalls ssh_keys; do
+  found=$(ids "$kind")
+  for id in $found; do
+    echo "Deleting ${kind%s} $id"
+    for i in $(seq 12); do
+      hcloud "$kind/$id" -X DELETE >/dev/null 2>&1 && break
+      [ "$i" = 12 ] && hcloud "$kind/$id" -X DELETE >/dev/null
+      sleep 5
+    done
+  done
+done
+
+token=$(curl -fsS -d "client_id=$TAILSCALE_OAUTH_CLIENT_ID" -d "client_secret=$TAILSCALE_OAUTH_CLIENT_SECRET" \
+  https://api.tailscale.com/api/v2/oauth/token | jq -r .access_token)
+devices=$(curl -fsS -H "Authorization: Bearer $token" https://api.tailscale.com/api/v2/tailnet/-/devices)
+for id in $(jq -r --argjson cutoff "$cutoff" ".devices | map(select(.tags // [] | index(\"tag:agentbox\"))) | $old | .[].id" <<<"$devices"); do
+  echo "Deleting device $id" && curl -fsS -H "Authorization: Bearer $token" -X DELETE "https://api.tailscale.com/api/v2/device/$id"
+done

@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { version } from '../package.json'
@@ -11,13 +11,18 @@ import { writeSshConfig } from './ssh.ts'
 
 export const providers = ['hetzner']
 
-export async function createHost(name: string, _provider: string): Promise<void> {
+export async function createHost(name: string, _provider: string, tailnet: boolean): Promise<void> {
   hostName(name)
   const d = join(hosts, name)
   if (existsSync(d)) fail(`Host ${name} already exists`)
   if (!process.env.HCLOUD_TOKEN) {
     fail(
       'agentbox needs an API token for a Hetzner project: create one in the Hetzner Console under Security > API tokens, with read and write access, and set HCLOUD_TOKEN',
+    )
+  }
+  if (tailnet && !(process.env.TAILSCALE_OAUTH_CLIENT_ID && process.env.TAILSCALE_OAUTH_CLIENT_SECRET)) {
+    fail(
+      'agentbox needs an OAuth client for your tailnet: create one in the Tailscale admin console under Settings > OAuth clients, with write access to auth keys for tag:agentbox, and set TAILSCALE_OAUTH_CLIENT_ID and TAILSCALE_OAUTH_CLIENT_SECRET',
     )
   }
   if (!onPath('tofu')) fail('agentbox needs OpenTofu to create hosts: https://opentofu.org/docs/intro/install/')
@@ -27,32 +32,17 @@ export async function createHost(name: string, _provider: string): Promise<void>
   run('ssh-keygen', ['-q', '-t', 'ed25519', '-N', '', '-C', '', '-f', join(d, 'ssh_host_ed25519_key')])
   const hostKey = readFileSync(join(d, 'ssh_host_ed25519_key.pub'), 'utf8').split(' ').slice(0, 2).join(' ')
   writeFileSync(join(d, 'known_hosts'), `${name} ${hostKey}\n`)
-  writeFileSync(
-    join(d, 'main.tf'),
-    `module "host" {
-  source         = "git::https://github.com/novibe-org/agentbox.git//modules/hetzner?ref=v${version}"
-  name           = "${name}"
-  ssh_public_key = file("\${path.module}/id_ed25519.pub")
-  host_key       = file("\${path.module}/ssh_host_ed25519_key")
-  host_key_pub   = file("\${path.module}/ssh_host_ed25519_key.pub")
-  release        = "${version}"
-}
-
-output "ipv4" {
-  value = module.host.ipv4
-}
-`,
-  )
+  writeFileSync(join(d, 'main.tf'), rootModule(name, tailnet))
   console.log(`Creating server ${name} on Hetzner`)
   run('tofu', [`-chdir=${d}`, 'init', '-input=false'], { stdout: 'ignore' })
   run('tofu', [`-chdir=${d}`, 'apply', '-input=false', '-auto-approve'], { stdout: 'ignore' })
-  const ip = run('tofu', [`-chdir=${d}`, 'output', '-raw', 'ipv4']).trim()
-  if (!/^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/.test(ip)) fail(`OpenTofu gave no IPv4 address for ${name}: ${ip}`)
-  console.log(`Server ${name} is up at ${ip}, setting it up`)
+  const address = await hostAddress(d)
+  if (!/^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$|^[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(address)) fail(`OpenTofu gave no address for ${name}: ${address}`)
+  console.log(`Server ${name} is up at ${address}, setting it up`)
   writeFileSync(
     join(d, 'ssh_config'),
     `Host ${name}
-  HostName ${ip}
+  HostName ${address}
   User agentbox
   IdentityFile ${d}/id_ed25519
   IdentitiesOnly yes
@@ -86,6 +76,55 @@ output "ipv4" {
   fail(`Host ${name} was created but is not ready after 5 minutes: ssh ${name} to look`)
 }
 
+// Tailscale's device list can lag behind the joined device, leaving the address null until a refresh.
+async function hostAddress(d: string): Promise<string> {
+  for (let i = 0; i < 12; i++) {
+    const outputs = JSON.parse(run('tofu', [`-chdir=${d}`, 'output', '-json'])) as Record<string, { value: unknown }>
+    const address = outputs.address?.value
+    if (typeof address === 'string' && address) return address
+    await sleep(5000)
+    run('tofu', [`-chdir=${d}`, 'apply', '-refresh-only', '-input=false', '-auto-approve'], { stdout: 'ignore' })
+  }
+  return ''
+}
+
+function moduleSource(module: string): string {
+  const local = process.env.AGENTBOX_MODULE_SOURCE
+  return local ? join(local, module) : `git::https://github.com/novibe-org/agentbox.git//modules/${module}?ref=v${version}`
+}
+
+function rootModule(name: string, tailnet: boolean): string {
+  const host = `module "host" {
+  source         = "${moduleSource('hetzner')}"
+  name           = "${name}"
+  ssh_public_key = file("\${path.module}/id_ed25519.pub")
+  host_key       = file("\${path.module}/ssh_host_ed25519_key")
+  host_key_pub   = file("\${path.module}/ssh_host_ed25519_key.pub")
+  release        = "${version}"${tailnet ? '\n  tailnet_auth_key = module.tailnet.auth_key' : ''}
+}
+
+output "ipv4" {
+  value = module.host.ipv4
+}
+`
+  if (!tailnet) return `${host}
+output "address" {
+  value = module.host.ipv4
+}
+`
+  return `${host}
+module "tailnet" {
+  source    = "${moduleSource('tailscale')}"
+  name      = "${name}"
+  server_id = module.host.server_id
+}
+
+output "address" {
+  value = module.tailnet.dns_name
+}
+`
+}
+
 const rotation = `set -euo pipefail
 k=/etc/ssh/ssh_host_ed25519_key
 rm -f "$k.new" "$k.new.pub"
@@ -98,9 +137,8 @@ cut -d' ' -f1,2 "$k.pub"
 async function rotateHostKey(name: string, d: string): Promise<void> {
   const key = run('ssh', ['-o', 'ControlPath=none', name, 'sudo bash -s'], { input: rotation }).trim()
   if (!/^ssh-ed25519 [A-Za-z0-9+/]+=*$/.test(key)) fail(`Host ${name} gave no new host key: ${key}`)
+  // The first host key stays: main.tf reads it on destroy.
   writeFileSync(join(d, 'known_hosts'), `${name} ${key}\n`)
-  rmSync(join(d, 'ssh_host_ed25519_key'), { force: true })
-  rmSync(join(d, 'ssh_host_ed25519_key.pub'), { force: true })
   for (let i = 0; i < 10; i++) {
     if (succeeds('ssh', ['-o', 'ConnectTimeout=5', '-o', 'ControlPath=none', name, 'true'], { stderr: 'ignore' })) return
     await sleep(1000)

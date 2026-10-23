@@ -41,3 +41,10 @@ variable "volume_size" {
   type        = number
   default     = 50
 }
+
+variable "tailnet_auth_key" {
+  description = "Auth key the host joins the developer's tailnet with; null leaves the host off it, with SSH open to the internet"
+  type        = string
+  default     = null
+  sensitive   = true
+}

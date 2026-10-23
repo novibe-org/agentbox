@@ -40,7 +40,7 @@ A workspace can share its own state the same way: keep it in another directory u
 
 ### A host on Hetzner
 
-`agentbox host create` creates the host with [OpenTofu](https://opentofu.org) and the module in [`modules/hetzner`](modules/hetzner): a server with Docker, the `agentbox` user and `agentboxd` of the CLI's version, a volume mounted at `/var/lib/agentbox`, and a firewall that lets in SSH only. Session clones and the shared logins live on the volume; containers and images live on the server's own disk.
+`agentbox host create` creates the host with [OpenTofu](https://opentofu.org) and the module in [`modules/hetzner`](modules/hetzner): a server with Docker, the `agentbox` user and `agentboxd` of the CLI's version, a volume mounted at `/var/lib/agentbox`, and a firewall that lets in SSH only, or nothing for a host on your tailnet. Session clones and the shared logins live on the volume; containers and images live on the server's own disk.
 
 Create an API token with read and write access in the [Hetzner Console](https://console.hetzner.com), under your project's Security > API tokens, then:
 
@@ -52,6 +52,28 @@ agentbox host create box2 --provider hetzner
 The server is a `cpx32` (4 vCPU, 8 GB) in Nuremberg with a 50 GB volume. Each host keeps its OpenTofu state and its own SSH key in `~/.agentbox/hosts/<name>`; keep that directory, as it is what deletes the host later. `agentbox host create` refuses a name you already have, and returns once agentboxd reports the host healthy.
 
 The CLI writes every host it creates, and the way into sessions, to `~/.ssh/agentbox.conf`, and puts `Include agentbox.conf` at the top of `~/.ssh/config`. `ssh box2` reaches the host, and `<id>.agentbox` a session.
+
+#### On your tailnet
+
+With `--tailnet` the host joins your [tailnet](https://tailscale.com/kb/1136/tailnet) and its firewall opens no port: you reach it over the tailnet only, still with OpenSSH and the host's own key. The module in [`modules/tailscale`](modules/tailscale) creates a single-use auth key tagged `tag:agentbox`, and the host's SSH entry names it by its MagicDNS name.
+
+Create an [OAuth client](https://tailscale.com/kb/1215/oauth-clients) with write access to auth keys for `tag:agentbox`, then:
+
+```bash
+export TAILSCALE_OAUTH_CLIENT_ID=<id> TAILSCALE_OAUTH_CLIENT_SECRET=<secret>
+agentbox host create box2 --provider hetzner --tailnet
+```
+
+Tailscale's default policy lets every device reach every other, so the coding agents on the host could reach your other devices. Give `tag:agentbox` no access of its own in your [tailnet policy](https://tailscale.com/kb/1337/policy-syntax), in place of the default rule that allows everything:
+
+```json
+{
+  "tagOwners": { "tag:agentbox": ["autogroup:admin"] },
+  "grants": [
+    { "src": ["autogroup:member"], "dst": ["tag:agentbox"], "ip": ["22"] }
+  ]
+}
+```
 
 ### Other hosts
 
@@ -150,6 +172,7 @@ agentbox rm fix-login
 | `AGENTBOX_REPO`    | this directory's `origin` | Workspace repo for `new`: a git URL, `owner/name` or `owner/name@branch` |
 | `AGENTBOX_PUBKEY`  | `~/.ssh/id_ed25519.pub`   | Public key authorized in each new session                                |
 | `HCLOUD_TOKEN`     |                           | API token of the Hetzner project hosts are created in                    |
+| `TAILSCALE_OAUTH_CLIENT_ID`, `TAILSCALE_OAUTH_CLIENT_SECRET` | | OAuth client of the tailnet that `--tailnet` hosts join |
 
 Sessions created before `--host` have no record and go to `AGENTBOX_MACHINE`. Some tools run `ProxyCommand` without your shell profile, so set it where they see it too, such as `launchctl setenv AGENTBOX_MACHINE agent-host` on macOS.
 

@@ -16,5 +16,8 @@ case $2 in
       agentbox-test-host >/dev/null
     echo '{}' > "$d/terraform.tfstate"
     ;;
-  output) docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$c" ;;
+  output)
+    ip=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$c")
+    if [ "$3" = -json ]; then echo "{\"address\":{\"value\":\"$ip\"},\"ipv4\":{\"value\":\"$ip\"}}"; else echo "$ip"; fi
+    ;;
 esac

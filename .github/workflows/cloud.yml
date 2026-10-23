@@ -1,0 +1,47 @@
+name: cloud
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: cloud
+  cancel-in-progress: false
+
+jobs:
+  spec:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    environment: cloud
+    env:
+      HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
+      TAILSCALE_OAUTH_CLIENT_ID: ${{ secrets.TAILSCALE_OAUTH_CLIENT_ID }}
+      TAILSCALE_OAUTH_CLIENT_SECRET: ${{ secrets.TAILSCALE_OAUTH_CLIENT_SECRET }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: opentofu/setup-opentofu@9d84900f3238fab8cd84ce47d658d25dd008be2f # v1
+        with:
+          tofu_version: 1.10.0
+          tofu_wrapper: false
+      - uses: tailscale/github-action@99a8333667fff04fdd6cffb46dfd409f8329a7bf # v4.3.0
+        with:
+          oauth-client-id: ${{ secrets.TAILSCALE_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TAILSCALE_OAUTH_CLIENT_SECRET }}
+          tags: tag:ci
+      - run: npm ci
+      - run: npm run build
+      - run: sudo install -d -o 1000 -g 1000 /var/lib/agentbox
+      - run: test/sweep
+      - run: npm test -- --profile cloud
+        env:
+          AGENTBOX_E2E: "1"
+          AGENTBOX_CLOUD: "1"
+          AGENTBOX_MODULE_SOURCE: ${{ github.workspace }}/modules
+      - if: always()
+        run: test/sweep

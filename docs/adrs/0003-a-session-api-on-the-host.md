@@ -30,7 +30,7 @@ Chosen option: "agentboxd, an HTTP API on a Unix socket on the host, reached ove
 
 agentboxd is the CLI's codebase, compiled for Linux with it, installed of the CLI's version by the host's cloud-init and run by systemd. It keeps one record per session under `/var/lib/agentbox/sessions`, whether its setup finished or why it failed, so a restart neither passes an unfinished session as ready nor forgets a failed one; the containers labelled `agentbox.session` and the clones next to the records hold the rest. It clones from GitHub over HTTPS with the host's GitHub login, or without one for a public repo, and the Feature points sessions' git at HTTPS too, so setup needs no forwarded agent. Creating the host, its key and its SSH entry stay with the CLI and OpenTofu.
 
-It shaped the views `containers`, `deployment`, `createHost`, `createSession` and `refuseTakenSession`.
+It shaped the views `containers`, `deployment`, `createHost` and `createSession`.
 
 ### Consequences
 

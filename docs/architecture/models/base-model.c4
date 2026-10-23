@@ -17,6 +17,10 @@ model {
     description 'Cloud provider that runs the host\'s server, volume and firewall.'
   }
 
+  tailscale = external 'Tailscale' {
+    description 'Runs the developer\'s tailnet, which a host can join.'
+  }
+
   github = external 'GitHub' {
     description 'Hosts the workspace repo and the repos it clones.'
   }
@@ -42,6 +46,10 @@ model {
       description 'OpenTofu module for a host on Hetzner: server, volume, firewall and cloud-init.'
       technology 'OpenTofu, hetznercloud/hcloud'
     }
+    tailscaleModule = library 'Tailscale module' {
+      description 'OpenTofu module for a host on the tailnet: its auth key and its MagicDNS name.'
+      technology 'OpenTofu, tailscale/tailscale'
+    }
     agentboxd = application 'agentboxd' {
       description 'The session API on each host: creates, lists and deletes the host\'s sessions, and reports the host\'s health.'
       technology 'TypeScript, Bun, HTTP on a Unix socket'
@@ -57,10 +65,14 @@ model {
 
     cli -> hostRegistry 'keeps each host\'s state in'
     cli -> sessionRegistry 'records each session\'s host in'
-    cli -> sshConfig 'writes each host\'s entry to'
+    cli -> sshConfig 'writes each host\'s entry to, by its MagicDNS name for a host on the tailnet'
     cli -> hetznerModule 'applies, fetched by its release tag' {
       technology 'OpenTofu'
     }
+    cli -> tailscaleModule 'applies for a host on the tailnet, fetched by its release tag' {
+      technology 'OpenTofu'
+    }
+    cli -> hetznerModule 'passes the tailnet auth key to'
     cli -> agentboxd 'creates, lists and deletes sessions with, and waits for a session to be set up' {
       technology 'HTTP over SSH'
     }
@@ -76,6 +88,9 @@ model {
   developer -> agentbox.cli 'creates hosts and sessions with'
   agentbox.hetznerModule -> hetzner 'creates the server, volume and firewall on' {
     technology 'Hetzner Cloud API'
+  }
+  agentbox.tailscaleModule -> tailscale 'creates a single-use auth key tagged tag:agentbox on, and reads the joined host\'s MagicDNS name from' {
+    technology 'Tailscale API, an OAuth client from the environment'
   }
   agentbox.agentboxd -> github 'clones the workspace repo from' {
     technology 'HTTPS, the host\'s GitHub login if there is one'

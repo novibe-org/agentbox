@@ -13,9 +13,8 @@ jobs:
       - uses: opentofu/setup-opentofu@9d84900f3238fab8cd84ce47d658d25dd008be2f # v1
         with:
           tofu_version: 1.10.0
-      - run: tofu -chdir=modules/hetzner fmt -check
-      - run: tofu -chdir=modules/hetzner init -backend=false
-      - run: tofu -chdir=modules/hetzner validate
+      - run: tofu fmt -check -recursive modules
+      - run: for m in modules/*/; do tofu -chdir="$m" init -backend=false && tofu -chdir="$m" validate; done
 
   spec:
     runs-on: ubuntu-latest
