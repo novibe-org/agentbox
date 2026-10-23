@@ -32,16 +32,6 @@ jobs:
         with:
           tofu_version: 1.10.0
           tofu_wrapper: false
-      # Temporary: shows why Tailscale refuses a tag, without printing the key.
-      - continue-on-error: true
-        run: |
-          token=$(curl -fsS -d "client_id=$TAILSCALE_OAUTH_CLIENT_ID" -d "client_secret=$TAILSCALE_OAUTH_CLIENT_SECRET" https://api.tailscale.com/api/v2/oauth/token | jq -r .access_token)
-          echo "devices visible: $(curl -fsS -H "Authorization: Bearer $token" https://api.tailscale.com/api/v2/tailnet/-/devices | jq '.devices | length')"
-          for tag in tag:ci tag:agentbox; do
-            curl -sS -H "Authorization: Bearer $token" -H 'Content-Type: application/json' \
-              -d "{\"capabilities\":{\"devices\":{\"create\":{\"ephemeral\":true,\"preauthorized\":true,\"tags\":[\"$tag\"]}}},\"expirySeconds\":60}" \
-              https://api.tailscale.com/api/v2/tailnet/-/keys | jq -c --arg tag "$tag" 'if .key then {tag: $tag, result: "created"} else {tag: $tag, error: .} end'
-          done
       - uses: tailscale/github-action@99a8333667fff04fdd6cffb46dfd409f8329a7bf # v4.3.0
         with:
           oauth-client-id: ${{ secrets.TAILSCALE_OAUTH_CLIENT_ID }}
