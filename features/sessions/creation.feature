@@ -11,7 +11,7 @@ Feature: Session creation
 
   Scenario: A session id that is taken is refused
     Given the developer has session "fix-login" on "devbox" with a note in its workspace
-    When the developer starts session "fix-login" from "acme/workspace" on "another-devbox"
+    When the developer starts session "fix-login" from "acme/workspace" on "devbox-2"
     Then the developer is told session "fix-login" already exists on "devbox"
     And session "fix-login" opens with its note intact
 
