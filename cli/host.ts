@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { version } from '../package.json'
@@ -139,9 +139,8 @@ cut -d' ' -f1,2 "$k.pub"
 async function rotateHostKey(name: string, d: string): Promise<void> {
   const key = run('ssh', ['-o', 'ControlPath=none', name, 'sudo bash -s'], { input: rotation }).trim()
   if (!/^ssh-ed25519 [A-Za-z0-9+/]+=*$/.test(key)) fail(`Host ${name} gave no new host key: ${key}`)
+  // The first host key stays: main.tf reads it, so a later destroy needs it, and the state holds it anyway.
   writeFileSync(join(d, 'known_hosts'), `${name} ${key}\n`)
-  rmSync(join(d, 'ssh_host_ed25519_key'), { force: true })
-  rmSync(join(d, 'ssh_host_ed25519_key.pub'), { force: true })
   for (let i = 0; i < 10; i++) {
     if (succeeds('ssh', ['-o', 'ConnectTimeout=5', '-o', 'ControlPath=none', name, 'true'], { stderr: 'ignore' })) return
     await sleep(1000)
