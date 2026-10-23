@@ -50,6 +50,10 @@ resource "hcloud_server" "host" {
     name             = var.name
     tailnet_auth_key = var.tailnet_auth_key == null ? "" : var.tailnet_auth_key
   })
+
+  lifecycle {
+    ignore_changes = [user_data]
+  }
 }
 
 resource "hcloud_volume_attachment" "state" {

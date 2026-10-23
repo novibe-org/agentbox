@@ -15,6 +15,11 @@ export type SessionRequest = {
   authorizedKey: string
 }
 
+export type TailnetRequest = {
+  authKey: string
+  hostname: string
+}
+
 export type Session = {
   id: string
   status: 'creating' | 'ready' | 'failed'

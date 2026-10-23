@@ -1,9 +1,10 @@
 import { Given, Then, When } from '@cucumber/cucumber'
 import assert from 'node:assert/strict'
-import { spawnSync } from 'node:child_process'
+import { execFileSync, spawnSync } from 'node:child_process'
 import { connect } from 'node:net'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
+import { devServerAnswers, startDevServer } from '../support/dev-server.mjs'
 
 function succeeded(result) {
   assert.equal(result.status, 0, `agentbox failed:\n${result.stdout}\n${result.stderr}`)
@@ -100,4 +101,43 @@ Then('nothing on the internet outside the tailnet can connect to {string}', asyn
     socket.on('error', () => resolve(false))
   })
   assert.equal(connected, false, `${host}'s public address ${ip} accepts SSH`)
+})
+
+Given('the developer has host {string} with session {string} on it, open to the internet', function (host, session) {
+  if (!this.cloud) return 'skipped'
+  succeeded(this.agentbox('host', 'create', host, '--provider', 'hetzner'))
+  this.ship(host)
+  succeeded(this.agentbox('new', session, this.workspace, '--host', host))
+  const draft = this.ssh(`${session}.agentbox`, `echo 'Login fails after password reset' > /workspaces/${session}/notes.md`)
+  assert.equal(draft.status, 0, draft.stderr)
+})
+
+Given('a dev server is running in {string}', function (session) {
+  const started = this.ssh(`${session}.agentbox`, startDevServer)
+  assert.equal(started.status, 0, started.stderr)
+})
+
+// Rejecting all traffic into the tailnet's ranges stands in for a tailnet policy that keeps the developer out.
+Given('their tailnet does not let them reach {string}', function (_host) {
+  for (const [tool, range] of [['iptables', '100.64.0.0/10'], ['ip6tables', 'fd7a:115c:a1e0::/48']]) {
+    execFileSync('sudo', [tool, '-I', 'OUTPUT', '-d', range, '-j', 'REJECT'])
+    this.unblock.push(() => execFileSync('sudo', [tool, '-D', 'OUTPUT', '-d', range, '-j', 'REJECT']))
+  }
+})
+
+When('the developer moves {string} onto their tailnet', function (host) {
+  this.agentbox('host', 'update', host, '--tailnet')
+})
+
+Then('the dev server in {string} is still running, with its work intact', function (session) {
+  succeeded(this.result)
+  const answers = this.ssh(`${session}.agentbox`, devServerAnswers)
+  assert.equal(answers.status, 0, answers.stderr)
+  const notes = this.ssh(`${session}.agentbox`, `cat /workspaces/${session}/notes.md`)
+  assert.equal(notes.stdout.trim(), 'Login fails after password reset', notes.stderr)
+})
+
+Then('the developer is told {string} cannot be reached over their tailnet', function (host) {
+  assert.notEqual(this.result.status, 0)
+  assert.match(this.result.stderr, new RegExp(`${host} cannot be reached over your tailnet`))
 })

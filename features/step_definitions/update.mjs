@@ -2,13 +2,11 @@ import { Given, Then, When } from '@cucumber/cucumber'
 import assert from 'node:assert/strict'
 import { spawn, spawnSync } from 'node:child_process'
 import { setTimeout as sleep } from 'node:timers/promises'
+import { devServerAnswers, startDevServer } from '../support/dev-server.mjs'
 
 function succeeded(result) {
   assert.equal(result.status, 0, `agentbox failed:\n${result.stdout}\n${result.stderr}`)
 }
-
-const devServer = `nohup node -e "require('http').createServer((q, s) => s.end('ok')).listen(8000)" >/dev/null 2>&1 </dev/null & echo $! > /tmp/dev-server.pid`
-const devServerAnswers = `kill -0 "$(cat /tmp/dev-server.pid)" && node -e "fetch('http://localhost:8000').then((r) => r.text()).then((t) => process.exit(t === 'ok' ? 0 : 1))"`
 
 function sessionStatus(world, host, session) {
   const record = world.ssh(host, `cat /var/lib/agentbox/sessions/${session}.json`)
@@ -26,7 +24,7 @@ Given('the developer has host {string} from agentbox 0.2.1, with a dev server ru
   if (!this.cloud) return 'skipped'
   const old = hostFromOldAgentbox(this, host)
   succeeded(spawnSync(old, ['new', session, this.workspace, '--host', host], { env: this.env, encoding: 'utf8', input: '' }))
-  const started = this.ssh(`${session}.agentbox`, devServer)
+  const started = this.ssh(`${session}.agentbox`, startDevServer)
   assert.equal(started.status, 0, started.stderr)
 })
 

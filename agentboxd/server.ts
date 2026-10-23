@@ -1,10 +1,11 @@
 import http, { type IncomingMessage, type ServerResponse } from 'node:http'
 import { chmodSync, rmSync } from 'node:fs'
 import { version } from '../package.json'
-import type { SessionRequest } from '../lib/api.ts'
+import type { SessionRequest, TailnetRequest } from '../lib/api.ts'
 import { idPattern } from '../lib/names.ts'
 import { health } from './health.ts'
 import { deleteSession, getSession, listSessions, recoverSessions, startSession } from './sessions.ts'
+import { joinTailnet } from './tailnet.ts'
 
 function send(res: ServerResponse, status: number, body?: unknown, type = 'application/json'): void {
   if (body === undefined) {
@@ -37,6 +38,11 @@ function isSessionRequest(body: unknown): body is SessionRequest {
   )
 }
 
+function isTailnetRequest(body: unknown): body is TailnetRequest {
+  const r = body as Partial<TailnetRequest> | undefined
+  return typeof r?.authKey === 'string' && /^[\w-]+$/.test(r.authKey) && typeof r.hostname === 'string' && idPattern.test(r.hostname)
+}
+
 async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
   const path = new URL(req.url ?? '/', 'http://agentboxd').pathname
   if (path === '/health' && req.method === 'GET') {
@@ -49,6 +55,12 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
     if (!isSessionRequest(body)) return send(res, 400, { error: 'A session needs an id, a repository and an authorizedKey' })
     const session = await startSession(body)
     return session ? send(res, 202, session) : send(res, 409, { error: `Session ${body.id} exists` })
+  }
+  if (path === '/tailnet' && req.method === 'PUT') {
+    const body = await readJson(req)
+    if (!isTailnetRequest(body)) return send(res, 400, { error: 'Joining the tailnet needs an authKey and a hostname' })
+    const error = await joinTailnet(body)
+    return error ? send(res, 502, { error }) : send(res, 204)
   }
   const id = path.match(/^\/sessions\/([^/]+)$/)?.[1]
   if (id && idPattern.test(id) && req.method === 'GET') {

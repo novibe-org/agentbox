@@ -64,6 +64,8 @@ export TAILSCALE_OAUTH_CLIENT_ID=<id> TAILSCALE_OAUTH_CLIENT_SECRET=<secret>
 agentbox host create devbox --provider hetzner --tailnet
 ```
 
+A host you already have moves onto your tailnet with `agentbox host update devbox --tailnet`. Its sessions keep running; its firewall closes only once you reach the host over the tailnet, so a policy that keeps you out leaves it open as before.
+
 Tailscale's default policy lets every device reach every other, so the coding agents on the host could reach your other devices. Give `tag:agentbox` no access of its own in your [tailnet policy](https://tailscale.com/kb/1337/policy-syntax), in place of the default rule that allows everything:
 
 ```json

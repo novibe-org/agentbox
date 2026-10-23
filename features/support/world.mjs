@@ -86,6 +86,7 @@ function destroy() {
 
 Before(reset)
 After(function ({ result }) {
+  for (const undo of this.unblock) undo()
   if (cloud) destroy()
   if (result?.status === 'FAILED') {
     for (const host of this.testHosts()) {
@@ -101,6 +102,7 @@ class World {
     this.workspace = workspace
     this.app = app
     this.cloud = cloud
+    this.unblock = []
     this.env = {
       ...process.env,
       ...agent,

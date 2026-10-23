@@ -1,6 +1,6 @@
 import { Command, Option } from 'commander'
 import { version } from '../package.json'
-import { createHost, providers } from './host.ts'
+import { createHost, providers, updateHost } from './host.ts'
 import { Exit } from '../lib/process.ts'
 import { listSessions, newSession, openExisting, proxy, removeSession } from './session.ts'
 
@@ -41,9 +41,16 @@ program
   .argument('<id>')
   .action(removeSession)
 
-program
-  .command('host')
-  .description('manage the hosts that run sessions')
+const host = program.command('host').description('manage the hosts that run sessions')
+
+host
+  .command('update')
+  .description("bring a host to this agentbox's version, and with --tailnet onto your tailnet")
+  .argument('<name>')
+  .option('--tailnet', 'put the host on your tailnet and close it to the internet; its sessions keep running')
+  .action((name: string, options: { tailnet?: boolean }) => updateHost(name, options.tailnet ?? false))
+
+host
   .command('create')
   .description('create a host for sessions')
   .argument('<name>', 'host name: lowercase letters, digits and hyphens')
