@@ -1,8 +1,5 @@
 name: cloud
 
-# Scenarios against a real Hetzner project and a real tailnet, both kept for tests only.
-# The environment `cloud` holds their secrets and waits for a maintainer's approval;
-# pull requests from forks never get them.
 on:
   pull_request:
   push:

@@ -17,7 +17,6 @@ resource "tailscale_tailnet_key" "host" {
   description   = "agentbox host ${var.name}"
 }
 
-# The host joins once its server exists; reading its device waits for that.
 resource "terraform_data" "server" {
   input = var.server_id
 }

@@ -10,7 +10,6 @@ const repo = resolve(import.meta.dirname, '../..')
 const home = homedir()
 const fixtures = mkdtempSync(join(tmpdir(), 'agentbox-fixtures-'))
 chmodSync(fixtures, 0o755)
-// A cloud run creates real hosts, which reach the fixtures from the runner over the tailnet.
 const cloud = process.env.AGENTBOX_CLOUD === '1'
 const origin = cloud ? `git://${execFileSync('tailscale', ['ip', '-4'], { encoding: 'utf8' }).trim()}` : `file://${fixtures}`
 const workspace = `${origin}/acme/workspace.git`
@@ -83,7 +82,6 @@ function reset() {
   rmSync(join(home, '.ssh/cm'), { recursive: true, force: true })
 }
 
-// A real host is destroyed before reset deletes the OpenTofu state that knows it.
 function destroy() {
   const hosts = join(home, '.agentbox/hosts')
   for (const host of existsSync(hosts) ? readdirSync(hosts) : []) {

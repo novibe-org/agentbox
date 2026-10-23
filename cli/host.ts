@@ -76,8 +76,7 @@ export async function createHost(name: string, _provider: string, tailnet: boole
   fail(`Host ${name} was created but is not ready after 5 minutes: ssh ${name} to look`)
 }
 
-// Tailscale's device list can lag behind the device the host joined as, which leaves the
-// address null after the apply; a refresh reads it again.
+// Tailscale's device list can lag behind the joined device, leaving the address null until a refresh.
 async function hostAddress(d: string): Promise<string> {
   for (let i = 0; i < 12; i++) {
     const outputs = JSON.parse(run('tofu', [`-chdir=${d}`, 'output', '-json'])) as Record<string, { value: unknown }>
@@ -89,7 +88,6 @@ async function hostAddress(d: string): Promise<string> {
   return ''
 }
 
-// AGENTBOX_MODULE_SOURCE points at a checkout's modules/, so a test run applies the modules it tests.
 function moduleSource(module: string): string {
   const local = process.env.AGENTBOX_MODULE_SOURCE
   return local ? join(local, module) : `git::https://github.com/novibe-org/agentbox.git//modules/${module}?ref=v${version}`
@@ -139,7 +137,7 @@ cut -d' ' -f1,2 "$k.pub"
 async function rotateHostKey(name: string, d: string): Promise<void> {
   const key = run('ssh', ['-o', 'ControlPath=none', name, 'sudo bash -s'], { input: rotation }).trim()
   if (!/^ssh-ed25519 [A-Za-z0-9+/]+=*$/.test(key)) fail(`Host ${name} gave no new host key: ${key}`)
-  // The first host key stays: main.tf reads it, so a later destroy needs it, and the state holds it anyway.
+  // The first host key stays: main.tf reads it on destroy.
   writeFileSync(join(d, 'known_hosts'), `${name} ${key}\n`)
   for (let i = 0; i < 10; i++) {
     if (succeeds('ssh', ['-o', 'ConnectTimeout=5', '-o', 'ControlPath=none', name, 'true'], { stderr: 'ignore' })) return

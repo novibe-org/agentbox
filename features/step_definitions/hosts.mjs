@@ -84,7 +84,6 @@ Then('the developer is told agentbox needs an OAuth client for their tailnet', f
   assert.match(this.result.stderr, /needs an OAuth client for your tailnet/)
 })
 
-// Only a cloud run has a real tailnet and real hosts; elsewhere the scenario is skipped.
 Given('the developer has given agentbox access to their tailnet', function () {
   if (!this.cloud) return 'skipped'
   assert.ok(this.env.TAILSCALE_OAUTH_CLIENT_ID && this.env.TAILSCALE_OAUTH_CLIENT_SECRET, 'a cloud run needs the test tailnet\'s OAuth client')

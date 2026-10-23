@@ -16,7 +16,6 @@ resource "hcloud_ssh_key" "host" {
 resource "hcloud_firewall" "host" {
   name = "agentbox-${var.name}"
 
-  # A host on the tailnet is reached only through it, so its firewall opens no port.
   dynamic "rule" {
     for_each = var.tailnet_auth_key == null ? [22] : []
     content {

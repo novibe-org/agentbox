@@ -1,6 +1,5 @@
 name: sweep
 
-# Deletes what a crashed cloud run left in the test Hetzner project and the test tailnet.
 on:
   schedule:
     - cron: '17 * * * *'

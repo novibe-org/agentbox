@@ -1,6 +1,4 @@
 #!/usr/bin/env bash
-# Deletes what test runs left in the test Hetzner project and the test tailnet, older than $1 minutes.
-# Both accounts hold nothing but tests, so everything in them may go.
 set -euo pipefail
 shopt -s inherit_errexit
 if [ "${GITHUB_ACTIONS:-}" != true ]; then
@@ -14,7 +12,6 @@ hcloud() {
   curl -fsS -H "Authorization: Bearer $HCLOUD_TOKEN" "${@:2}" "https://api.hetzner.cloud/v1/$1"
 }
 
-# Each listing is assigned before it is used, so a refused token stops the sweep.
 ids() {
   local listing
   listing=$(hcloud "$1?per_page=50")
@@ -30,7 +27,7 @@ for i in $(seq 30); do
   [ -z "$left" ] && break
   sleep 5
 done
-# A firewall stays attached for a while after its server is gone, so deletes are retried.
+# A firewall stays attached for a while after its server is gone.
 for kind in volumes firewalls ssh_keys; do
   found=$(ids "$kind")
   for id in $found; do
