@@ -30,6 +30,7 @@ When('the developer creates host {string} on Hetzner', function (host) {
 
 Then('session {string} started on {string} from {string} opens with the workspace checked out', function (session, host, _workspace) {
   succeeded(this.result)
+  this.ship(host)
   succeeded(this.agentbox('new', session, this.workspace, '--host', host))
   const origin = this.ssh(`${session}.agentbox`, `git -C /workspaces/${session} remote get-url origin`)
   assert.equal(origin.status, 0, origin.stderr)

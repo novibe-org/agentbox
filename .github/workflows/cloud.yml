@@ -2,8 +2,10 @@ name: cloud
 
 on:
   pull_request:
+    paths: [cli/**, agentboxd/**, lib/**, modules/**, features/hosts/**, features/step_definitions/**, features/support/**, test/sweep, .github/workflows/cloud.yml, package.json, package-lock.json]
   push:
     branches: [main]
+    paths: [cli/**, agentboxd/**, lib/**, modules/**, features/hosts/**, features/step_definitions/**, features/support/**, test/sweep, .github/workflows/cloud.yml, package.json, package-lock.json]
   workflow_dispatch:
 
 concurrency:
@@ -43,5 +45,7 @@ jobs:
           AGENTBOX_E2E: "1"
           AGENTBOX_CLOUD: "1"
           AGENTBOX_MODULE_SOURCE: ${{ github.workspace }}/modules
+          AGENTBOX_AGENTBOXD: ${{ github.workspace }}/dist/agentboxd
+          AGENTBOX_RELEASE: "0.2.1"
       - if: always()
         run: test/sweep

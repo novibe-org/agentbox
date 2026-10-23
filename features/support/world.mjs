@@ -11,11 +11,9 @@ const home = homedir()
 const fixtures = mkdtempSync(join(tmpdir(), 'agentbox-fixtures-'))
 chmodSync(fixtures, 0o755)
 const cloud = process.env.AGENTBOX_CLOUD === '1'
-const origin = cloud ? `git://${execFileSync('tailscale', ['ip', '-4'], { encoding: 'utf8' }).trim()}` : `file://${fixtures}`
-const workspace = `${origin}/acme/workspace.git`
-const app = `${origin}/acme/app.git`
+const workspace = `file://${fixtures}/acme/workspace.git`
+const app = `file://${fixtures}/acme/app.git`
 let agent
-let daemon
 
 BeforeAll(() => {
   if (process.env.AGENTBOX_E2E !== '1') {
@@ -36,7 +34,7 @@ BeforeAll(() => {
         image: 'node:22-bookworm-slim',
         remoteUser: 'node',
         features: { './agentbox': {} },
-        mounts: cloud ? [] : [{ source: fixtures, target: fixtures, type: 'bind' }],
+        mounts: [{ source: fixtures, target: fixtures, type: 'bind' }],
         postCreateCommand: 'bash .devcontainer/setup.sh',
       },
       null,
@@ -46,9 +44,6 @@ BeforeAll(() => {
     '.gitignore': 'projects/\n',
   })
   execFileSync('sudo', ['chown', '-R', '1000:1000', fixtures])
-  if (cloud) {
-    daemon = spawn('git', ['daemon', '--reuseaddr', '--export-all', `--base-path=${fixtures}`, `--listen=${origin.slice('git://'.length)}`, fixtures], { stdio: 'ignore' })
-  }
 })
 
 function repository(name, files) {
@@ -66,7 +61,6 @@ function repository(name, files) {
 }
 
 AfterAll(() => {
-  daemon?.kill()
   if (agent) execFileSync('ssh-agent', ['-k'], { env: { ...process.env, ...agent }, stdio: 'ignore' })
   execFileSync('sudo', ['rm', '-rf', fixtures])
 })
@@ -85,6 +79,7 @@ function reset() {
 function destroy() {
   const hosts = join(home, '.agentbox/hosts')
   for (const host of existsSync(hosts) ? readdirSync(hosts) : []) {
+    for (const key of ['ssh_host_ed25519_key', 'ssh_host_ed25519_key.pub']) writeFileSync(join(hosts, host, key), '', { flag: 'a' })
     spawnSync('tofu', [`-chdir=${join(hosts, host)}`, 'destroy', '-input=false', '-auto-approve'], { stdio: 'inherit' })
   }
 }
@@ -119,6 +114,24 @@ class World {
   agentbox(...args) {
     this.result = spawnSync('agentbox', args, { env: this.env, encoding: 'utf8', input: '' })
     return this.result
+  }
+
+  // A real host clones the fixtures from its own disk, at the path the runner has them.
+  ship(host) {
+    if (!this.cloud) return
+    const tar = spawnSync('tar', ['-C', fixtures, '-c', '.'])
+    const result = spawnSync('ssh', [host, `sudo mkdir -p ${fixtures} && sudo tar -C ${fixtures} -x && sudo chown -R 1000:1000 ${fixtures}`], { env: this.env, input: tar.stdout })
+    if (result.status !== 0) throw new Error(`Cannot ship the fixtures to ${host}: ${result.stderr}`)
+  }
+
+  // agentbox 0.2.1 from its release, for hosts from an older agentbox.
+  oldAgentbox() {
+    const binary = join(tmpdir(), 'agentbox-0.2.1')
+    if (!existsSync(binary)) {
+      execFileSync('curl', ['-fsSLo', binary, 'https://github.com/novibe-org/agentbox/releases/download/v0.2.1/agentbox-linux-x64'])
+      chmodSync(binary, 0o755)
+    }
+    return binary
   }
 
   ssh(host, command) {

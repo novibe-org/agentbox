@@ -49,7 +49,7 @@ export HCLOUD_TOKEN=<token>
 agentbox host create box2 --provider hetzner
 ```
 
-The server is a `cpx32` (4 vCPU, 8 GB) in Nuremberg with a 50 GB volume. Each host keeps its OpenTofu state and its own SSH key in `~/.agentbox/hosts/<name>`; keep that directory, as it is what deletes the host later. `agentbox host create` refuses a name you already have, and returns once agentboxd reports the host healthy.
+The server is a `cpx32` (4 vCPU, 8 GB) in Nuremberg with a 50 GB volume. Each host keeps its OpenTofu state and its own SSH key in `~/.agentbox/hosts/<name>`; keep that directory, as it is what deletes the host later. `agentbox host create` refuses a name you already have, and returns once agentboxd reports the host healthy. When a newer agentbox first uses a host, it brings the host's agentboxd to its own version, and the sessions on it keep running; it waits while a session is being set up.
 
 The CLI writes every host it creates, and the way into sessions, to `~/.ssh/agentbox.conf`, and puts `Include agentbox.conf` at the top of `~/.ssh/config`. `ssh box2` reaches the host, and `<id>.agentbox` a session.
 

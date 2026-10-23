@@ -22,7 +22,7 @@ model {
   }
 
   github = external 'GitHub' {
-    description 'Hosts the workspace repo and the repos it clones.'
+    description 'Hosts the workspace repo, the repos it clones, and agentbox\'s releases.'
   }
 
   agentbox = system 'agentbox' {
@@ -73,6 +73,9 @@ model {
       technology 'OpenTofu'
     }
     cli -> hetznerModule 'passes the tailnet auth key to'
+    cli -> agentboxd 'replaces with its own version' {
+      technology 'SSH and sudo, from the release on GitHub'
+    }
     cli -> agentboxd 'creates, lists and deletes sessions with, and waits for a session to be set up' {
       technology 'HTTP over SSH'
     }

@@ -7,4 +7,4 @@ const spec = {
 
 export default spec
 
-export const cloud = { ...spec, name: ['is closed to the internet'] }
+export const cloud = { ...spec, name: ['is closed to the internet', 'is brought up to date when it is used', 'setting up a session is not updated'] }

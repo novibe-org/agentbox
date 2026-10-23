@@ -93,6 +93,7 @@ function moduleSource(module: string): string {
   return local ? join(local, module) : `git::https://github.com/novibe-org/agentbox.git//modules/${module}?ref=v${version}`
 }
 
+// AGENTBOX_RELEASE starts a test host from a published release while this version has none.
 function rootModule(name: string, tailnet: boolean): string {
   const host = `module "host" {
   source         = "${moduleSource('hetzner')}"
@@ -100,7 +101,7 @@ function rootModule(name: string, tailnet: boolean): string {
   ssh_public_key = file("\${path.module}/id_ed25519.pub")
   host_key       = file("\${path.module}/ssh_host_ed25519_key")
   host_key_pub   = file("\${path.module}/ssh_host_ed25519_key.pub")
-  release        = "${version}"${tailnet ? '\n  tailnet_auth_key = module.tailnet.auth_key' : ''}
+  release        = "${process.env.AGENTBOX_RELEASE || version}"${tailnet ? '\n  tailnet_auth_key = module.tailnet.auth_key' : ''}
 }
 
 output "ipv4" {
