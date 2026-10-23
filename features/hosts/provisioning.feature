@@ -55,14 +55,24 @@ Feature: Host provisioning
       And the developer has no hosts
 
     @backlog
-    Scenario: A host open to the internet moves onto the developer's tailnet
-      Given the developer has host "box2" with session "fix-login" on it, open to the internet
-      When the developer moves "box2" onto their tailnet
-      Then session "fix-login" on "box2" opens with its work intact
-      And nothing on the internet outside the tailnet can connect to "box2"
-
-    @backlog
     Scenario: The sessions on a tailnet host cannot reach the developer's other devices
       Given the developer has host "box2" on their tailnet, and their laptop "mbp" is on it too
       When session "fix-login" on "box2" tries to connect to "mbp"
       Then the connection is refused
+
+  @id:host-moves-to-tailnet
+  Rule: A host moves onto the developer's tailnet without stopping its sessions or locking the developer out
+
+    Scenario: A host open to the internet moves onto the developer's tailnet
+      Given the developer has host "box2" with session "fix-login" on it, open to the internet
+      And a dev server is running in "fix-login"
+      When the developer moves "box2" onto their tailnet
+      Then the dev server in "fix-login" is still running, with its work intact
+      And nothing on the internet outside the tailnet can connect to "box2"
+
+    Scenario: A host that cannot be reached over the tailnet stays open to the internet
+      Given the developer has host "box2" with session "fix-login" on it, open to the internet
+      And their tailnet does not let them reach "box2"
+      When the developer moves "box2" onto their tailnet
+      Then the developer is told "box2" cannot be reached over their tailnet
+      And session "fix-login" on "box2" opens with its work intact
