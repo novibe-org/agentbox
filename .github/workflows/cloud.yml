@@ -43,5 +43,7 @@ jobs:
           AGENTBOX_E2E: "1"
           AGENTBOX_CLOUD: "1"
           AGENTBOX_MODULE_SOURCE: ${{ github.workspace }}/modules
+          AGENTBOX_AGENTBOXD: ${{ github.workspace }}/dist/agentboxd
+          AGENTBOX_RELEASE: "0.2.1"
       - if: always()
         run: test/sweep
