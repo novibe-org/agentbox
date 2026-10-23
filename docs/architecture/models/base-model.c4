@@ -43,7 +43,7 @@ model {
       description '~/.ssh/agentbox.conf: every host and the *.agentbox block, included from ~/.ssh/config.'
     }
     hetznerModule = library 'Hetzner module' {
-      description 'OpenTofu module for a host on Hetzner: server, volume, firewall and cloud-init.'
+      description 'OpenTofu module for a host on Hetzner: server, volume, firewall and cloud-init, which runs at the first boot only, so a later change to it keeps the server.'
       technology 'OpenTofu, hetznercloud/hcloud'
     }
     tailscaleModule = library 'Tailscale module' {
@@ -76,6 +76,9 @@ model {
     cli -> agentboxd 'replaces with its own version' {
       technology 'SSH and sudo, from the release on GitHub'
     }
+    cli -> agentboxd 'puts the host on the tailnet with an auth key' {
+      technology 'HTTP over SSH'
+    }
     cli -> agentboxd 'creates, lists and deletes sessions with, and waits for a session to be set up' {
       technology 'HTTP over SSH'
     }
@@ -94,6 +97,9 @@ model {
   }
   agentbox.tailscaleModule -> tailscale 'creates a single-use auth key tagged tag:agentbox on, and reads the joined host\'s MagicDNS name from' {
     technology 'Tailscale API, an OAuth client from the environment'
+  }
+  agentbox.agentboxd -> tailscale 'joins the tailnet with the auth key' {
+    technology 'tailscaled'
   }
   agentbox.agentboxd -> github 'clones the workspace repo from' {
     technology 'HTTPS, the host\'s GitHub login if there is one'
