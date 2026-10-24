@@ -5,12 +5,12 @@ Feature: Session listing
   So that I know what runs where
 
   Scenario: A developer without sessions is told how to start one
-    Given the developer has host "box2"
+    Given the developer has host "devbox"
     When the developer lists their sessions
-    Then the developer is told there are no sessions yet, and how to start one on "box2"
+    Then the developer is told there are no sessions yet, and how to start one on "devbox"
 
   Scenario: A host that does not answer hides no other host's sessions
-    Given the developer has session "fix-login" on "box2", and host "claude-box" does not answer
+    Given the developer has session "fix-login" on "devbox", and host "claude-box" does not answer
     When the developer lists their sessions
     Then the developer is told "claude-box" does not answer
-    And the developer sees session "fix-login" on "box2"
+    And the developer sees session "fix-login" on "devbox"

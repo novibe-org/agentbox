@@ -17,9 +17,9 @@ Sessions are isolated from each other and from your laptop, not from your accoun
 ## Setup at a glance
 
 1. [Install the CLI](#the-cli): `brew install novibe-org/tap/agentbox`, which brings [OpenTofu](https://opentofu.org/docs/intro/install/) along.
-2. [Create a session host](#a-host-on-hetzner): `agentbox host create box2 --provider hetzner`.
+2. [Create a session host](#a-host-on-hetzner): `agentbox host create devbox --provider hetzner`.
 3. [Make a workspace repo](#a-workspace) whose devcontainer uses the Feature.
-4. `agentbox new <id> <owner/workspace> --host box2`, then [log in once](#log-in-once).
+4. `agentbox new <id> <owner/workspace> --host devbox`, then [log in once](#log-in-once).
 
 ## The session host
 
@@ -46,12 +46,12 @@ Create an API token with read and write access in the [Hetzner Console](https://
 
 ```bash
 export HCLOUD_TOKEN=<token>
-agentbox host create box2 --provider hetzner
+agentbox host create devbox --provider hetzner
 ```
 
 The server is a `cpx32` (4 vCPU, 8 GB) in Nuremberg with a 50 GB volume. Each host keeps its OpenTofu state and its own SSH key in `~/.agentbox/hosts/<name>`; keep that directory, as it is what deletes the host later. `agentbox host create` refuses a name you already have, and returns once agentboxd reports the host healthy. When a newer agentbox first uses a host, it brings the host's agentboxd to its own version, and the sessions on it keep running; it waits while a session is being set up.
 
-The CLI writes every host it creates, and the way into sessions, to `~/.ssh/agentbox.conf`, and puts `Include agentbox.conf` at the top of `~/.ssh/config`. `ssh box2` reaches the host, and `<id>.agentbox` a session.
+The CLI writes every host it creates, and the way into sessions, to `~/.ssh/agentbox.conf`, and puts `Include agentbox.conf` at the top of `~/.ssh/config`. `ssh devbox` reaches the host, and `<id>.agentbox` a session.
 
 #### On your tailnet
 
@@ -61,8 +61,10 @@ Create an [OAuth client](https://tailscale.com/kb/1215/oauth-clients) with write
 
 ```bash
 export TAILSCALE_OAUTH_CLIENT_ID=<id> TAILSCALE_OAUTH_CLIENT_SECRET=<secret>
-agentbox host create box2 --provider hetzner --tailnet
+agentbox host create devbox --provider hetzner --tailnet
 ```
+
+A host you already have moves onto your tailnet with `agentbox host update devbox --tailnet`. Its sessions keep running; its firewall closes only once you reach the host over the tailnet, so a policy that keeps you out leaves it open as before.
 
 Tailscale's default policy lets every device reach every other, so the coding agents on the host could reach your other devices. Give `tag:agentbox` no access of its own in your [tailnet policy](https://tailscale.com/kb/1337/policy-syntax), in place of the default rule that allows everything:
 
@@ -84,8 +86,8 @@ Hosts agentbox did not create have no agentboxd, and this version runs no sessio
 agentboxd serves the API in [`agentboxd/openapi.yaml`](agentboxd/openapi.yaml) on a Unix socket, `/run/agentboxd/agentboxd.sock`, that only the `agentbox` user can open. No port is open for it: the CLI reaches it over SSH with `ssh <host> agentboxd dial-stdio`, as Docker's CLI reaches `dockerd`. It keeps one record per session, whether its setup finished or why it failed; the labelled containers and the clones hold the rest.
 
 ```bash
-ssh box2 'curl -s --unix-socket /run/agentboxd/agentboxd.sock http://agentboxd/health'   # what the host can do
-ssh box2 journalctl -u agentboxd                                                        # its log
+ssh devbox 'curl -s --unix-socket /run/agentboxd/agentboxd.sock http://agentboxd/health'   # what the host can do
+ssh devbox journalctl -u agentboxd                                                        # its log
 ```
 
 The CLI and agentboxd change together, so the CLI refuses a host whose agentboxd is on another version.
@@ -153,8 +155,8 @@ It is written in TypeScript with [Commander](https://github.com/tj/commander.js)
 Name the host and the workspace repo, or run from inside a checkout of the repo:
 
 ```bash
-agentbox new fix-login myorg/workspace --host box2   # create a session and open it
-agentbox new fix-login --host box2                   # same, from this directory's origin
+agentbox new fix-login myorg/workspace --host devbox   # create a session and open it
+agentbox new fix-login --host devbox                   # same, from this directory's origin
 agentbox open fix-login  # reconnect
 agentbox ls
 agentbox rm fix-login
@@ -180,7 +182,7 @@ Sessions created before `--host` have no record and go to `AGENTBOX_MACHINE`. So
 
 ## Log in once
 
-The logins live on the host, not in the container, so the first session sets them up for every later one. A private workspace repo needs the GitHub login before its first session, as the host clones it: log in on the host once with `ssh -t box2 GH_CONFIG_DIR=/var/lib/agentbox/gh gh auth login`.
+The logins live on the host, not in the container, so the first session sets them up for every later one. A private workspace repo needs the GitHub login before its first session, as the host clones it: log in on the host once with `ssh -t devbox GH_CONFIG_DIR=/var/lib/agentbox/gh gh auth login`.
 
 ```bash
 claude                                   # log in to Claude Code
@@ -210,4 +212,4 @@ Set `"openTerminalLinksInCmuxBrowser": false` instead to send every link out, lo
 - **Let agents push branches, not `main`.** They act with your accounts; branch protection on your repos is the guard rail.
 - **Rebuild instead of repairing.** If a session's environment drifts, `agentbox rm` and `agentbox new` with the same id start clean from the workspace repo.
 - **Bring a stopped session back** with `agentbox open <id>`, which starts its container. Sessions without the restart policy stay down after the host reboots until then.
-- **Watch the disk.** `ssh box2 df -h /var/lib/agentbox` shows the volume; `docker system prune` on the host clears old images after Feature updates.
+- **Watch the disk.** `ssh devbox df -h /var/lib/agentbox` shows the volume; `docker system prune` on the host clears old images after Feature updates.

@@ -82,10 +82,12 @@ function destroy() {
     for (const key of ['ssh_host_ed25519_key', 'ssh_host_ed25519_key.pub']) writeFileSync(join(hosts, host, key), '', { flag: 'a' })
     spawnSync('tofu', [`-chdir=${join(hosts, host)}`, 'destroy', '-input=false', '-auto-approve'], { stdio: 'inherit' })
   }
+  spawnSync(join(repo, 'test/sweep'), { stdio: 'inherit' })
 }
 
 Before(reset)
 After(function ({ result }) {
+  for (const undo of this.unblock) undo()
   if (cloud) destroy()
   if (result?.status === 'FAILED') {
     for (const host of this.testHosts()) {
@@ -101,6 +103,7 @@ class World {
     this.workspace = workspace
     this.app = app
     this.cloud = cloud
+    this.unblock = []
     this.env = {
       ...process.env,
       ...agent,

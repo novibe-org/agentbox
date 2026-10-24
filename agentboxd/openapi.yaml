@@ -85,6 +85,36 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Refusal" }
+  /tailnet:
+    put:
+      summary: Put the host on the developer's tailnet; it installs Tailscale and joins with the auth key
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TailnetRequest" }
+      responses:
+        "200":
+          description: The host is on the tailnet
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [dnsName]
+                properties:
+                  dnsName:
+                    type: string
+                    description: The host's MagicDNS name, such as devbox.example.ts.net
+        "400":
+          description: The request is malformed
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Refusal" }
+        "502":
+          description: Tailscale did not install, or the host did not join
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Refusal" }
 components:
   schemas:
     SessionId:
@@ -102,6 +132,16 @@ components:
         authorizedKey:
           type: string
           description: Public key authorized in the session's container
+    TailnetRequest:
+      type: object
+      required: [authKey, hostname]
+      properties:
+        authKey:
+          type: string
+          description: Single-use auth key for the tailnet
+        hostname:
+          type: string
+          description: The host's name in the tailnet
     Session:
       type: object
       required: [id, status]

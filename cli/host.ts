@@ -5,7 +5,7 @@ import { version } from '../package.json'
 import type { Health } from '../lib/api.ts'
 import { hostName } from '../lib/names.ts'
 import { fail, onPath, run, succeeds } from '../lib/process.ts'
-import { request } from './client.ts'
+import { call, connect, request } from './client.ts'
 import { hosts } from './paths.ts'
 import { writeSshConfig } from './ssh.ts'
 
@@ -20,11 +20,7 @@ export async function createHost(name: string, _provider: string, tailnet: boole
       'agentbox needs an API token for a Hetzner project: create one in the Hetzner Console under Security > API tokens, with read and write access, and set HCLOUD_TOKEN',
     )
   }
-  if (tailnet && !(process.env.TAILSCALE_OAUTH_CLIENT_ID && process.env.TAILSCALE_OAUTH_CLIENT_SECRET)) {
-    fail(
-      'agentbox needs an OAuth client for your tailnet: create one in the Tailscale admin console under Settings > OAuth clients, with write access to auth keys for tag:agentbox, and set TAILSCALE_OAUTH_CLIENT_ID and TAILSCALE_OAUTH_CLIENT_SECRET',
-    )
-  }
+  if (tailnet) requireTailnetAccess()
   if (!onPath('tofu')) fail('agentbox needs OpenTofu to create hosts: https://opentofu.org/docs/intro/install/')
 
   mkdirSync(d, { recursive: true })
@@ -39,25 +35,7 @@ export async function createHost(name: string, _provider: string, tailnet: boole
   const address = await hostAddress(d)
   if (!/^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$|^[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(address)) fail(`OpenTofu gave no address for ${name}: ${address}`)
   console.log(`Server ${name} is up at ${address}, setting it up`)
-  writeFileSync(
-    join(d, 'ssh_config'),
-    `Host ${name}
-  HostName ${address}
-  User agentbox
-  IdentityFile ${d}/id_ed25519
-  IdentitiesOnly yes
-  HostKeyAlias ${name}
-  UserKnownHostsFile ${d}/known_hosts
-  StrictHostKeyChecking yes
-  ControlMaster auto
-  ControlPath ~/.ssh/cm/%r@%h:%p
-  ControlPersist 30m
-  ServerAliveInterval 5
-  ServerAliveCountMax 2
-
-`,
-  )
-  writeSshConfig()
+  writeEntry(name, d, address)
 
   const once = ['-o', 'ConnectTimeout=5', '-o', 'ControlPath=none']
   let waiting = ''
@@ -78,6 +56,28 @@ export async function createHost(name: string, _provider: string, tailnet: boole
 }
 
 // Tailscale's device list can lag behind the joined device, leaving the address null until a refresh.
+function writeEntry(name: string, d: string, address: string): void {
+  writeFileSync(
+    join(d, 'ssh_config'),
+    `Host ${name}
+  HostName ${address}
+  User agentbox
+  IdentityFile ${d}/id_ed25519
+  IdentitiesOnly yes
+  HostKeyAlias ${name}
+  UserKnownHostsFile ${d}/known_hosts
+  StrictHostKeyChecking yes
+  ControlMaster auto
+  ControlPath ~/.ssh/cm/%r@%h:%p
+  ControlPersist 30m
+  ServerAliveInterval 5
+  ServerAliveCountMax 2
+
+`,
+  )
+  writeSshConfig()
+}
+
 async function hostAddress(d: string): Promise<string> {
   for (let i = 0; i < 12; i++) {
     const outputs = JSON.parse(run('tofu', [`-chdir=${d}`, 'output', '-json'])) as Record<string, { value: unknown }>
@@ -95,14 +95,14 @@ function moduleSource(module: string): string {
 }
 
 // AGENTBOX_RELEASE starts a test host from a published release while this version has none.
-function rootModule(name: string, tailnet: boolean): string {
+function rootModule(name: string, tailnet: boolean, joining = false): string {
   const host = `module "host" {
   source         = "${moduleSource('hetzner')}"
   name           = "${name}"
   ssh_public_key = file("\${path.module}/id_ed25519.pub")
   host_key       = file("\${path.module}/ssh_host_ed25519_key")
   host_key_pub   = file("\${path.module}/ssh_host_ed25519_key.pub")
-  release        = "${process.env.AGENTBOX_RELEASE || version}"${tailnet ? '\n  tailnet_auth_key = module.tailnet.auth_key' : ''}
+  release        = "${process.env.AGENTBOX_RELEASE || version}"${tailnet && !joining ? '\n  tailnet          = true\n  tailnet_auth_key = module.tailnet.auth_key' : ''}
 }
 
 output "ipv4" {
@@ -124,7 +124,54 @@ module "tailnet" {
 output "address" {
   value = module.tailnet.dns_name
 }
+
+output "auth_key" {
+  value     = module.tailnet.auth_key
+  sensitive = true
+}
 `
+}
+
+function requireTailnetAccess(): void {
+  if (!(process.env.TAILSCALE_OAUTH_CLIENT_ID && process.env.TAILSCALE_OAUTH_CLIENT_SECRET)) {
+    fail(
+      'agentbox needs an OAuth client for your tailnet: create one in the Tailscale admin console under Settings > Trust credentials, with write access to auth keys for tag:agentbox, and set TAILSCALE_OAUTH_CLIENT_ID and TAILSCALE_OAUTH_CLIENT_SECRET',
+    )
+  }
+}
+
+// The firewall closes only once the host answers over the tailnet, so the developer is never locked out.
+export async function updateHost(name: string, tailnet: boolean): Promise<void> {
+  hostName(name)
+  const d = join(hosts, name)
+  if (!existsSync(d)) fail(`No host ${name}: agentbox host create ${name} --provider hetzner`)
+  if (tailnet) requireTailnetAccess()
+  await connect(name)
+  if (!tailnet) return console.log(`${name} runs agentbox ${version}`)
+  if (readFileSync(join(d, 'main.tf'), 'utf8').includes('module "tailnet"')) return console.log(`${name} is on your tailnet`)
+
+  // Hosts from agentbox 0.2.1 deleted their first host key, which main.tf reads.
+  for (const key of ['ssh_host_ed25519_key', 'ssh_host_ed25519_key.pub']) writeFileSync(join(d, key), '', { flag: 'a' })
+  const tofu = (...args: string[]) => run('tofu', [`-chdir=${d}`, ...args], { stdout: 'ignore' })
+  const ip = run('tofu', [`-chdir=${d}`, 'output', '-raw', 'ipv4']).trim()
+  writeFileSync(join(d, 'main.tf'), rootModule(name, true, true))
+  tofu('init', '-input=false', '-upgrade')
+  tofu('apply', '-input=false', '-auto-approve', '-target=module.tailnet.tailscale_tailnet_key.host')
+  const authKey = run('tofu', [`-chdir=${d}`, 'output', '-raw', 'auth_key']).trim()
+  console.log(`Putting ${name} on your tailnet`)
+  const joined = await call<{ dnsName?: string; error?: string }>(name, 'PUT', '/tailnet', { authKey, hostname: name })
+  const address = joined.body?.dnsName
+  if (joined.status !== 200 || !address) fail(`${name} did not join your tailnet: ${joined.body?.error}`)
+  tofu('apply', '-input=false', '-auto-approve')
+  writeEntry(name, d, address)
+  const answers = await request(name, 'GET', '/health', undefined, ['-o', 'ConnectTimeout=10', '-o', 'ControlPath=none']).catch(() => undefined)
+  if (!answers) {
+    writeEntry(name, d, ip)
+    fail(`${name} cannot be reached over your tailnet at ${address}, so it stays open to the internet: check that your tailnet policy lets you reach tag:agentbox on port 22`)
+  }
+  writeFileSync(join(d, 'main.tf'), rootModule(name, true))
+  tofu('apply', '-input=false', '-auto-approve')
+  console.log(`${name} is on your tailnet at ${address}, and closed to the internet`)
 }
 
 const rotation = `set -euo pipefail

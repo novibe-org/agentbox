@@ -43,8 +43,14 @@ variable "volume_size" {
 }
 
 variable "tailnet_auth_key" {
-  description = "Auth key the host joins the developer's tailnet with; null leaves the host off it, with SSH open to the internet"
+  description = "Auth key the host joins the developer's tailnet with at its first boot"
   type        = string
   default     = null
   sensitive   = true
+}
+
+variable "tailnet" {
+  description = "Whether the host is reached over the developer's tailnet only, with no port open to the internet"
+  type        = bool
+  default     = false
 }
