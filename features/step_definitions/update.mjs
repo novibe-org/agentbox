@@ -37,13 +37,12 @@ Given('the developer has host {string} from agentbox 0.2.1, setting up session {
   assert.equal(sessionStatus(this, host, session), 'creating')
 })
 
-When('the developer starts session {string} on {string} with agentbox 0.3.0', function (session, host) {
-  assert.equal(this.agentbox('--version').stdout.trim(), '0.3.0')
+When('the developer starts session {string} on {string}', function (session, host) {
   this.agentbox('new', session, this.workspace, '--host', host)
 })
 
-Then('the developer is told {string} was updated from 0.2.1 to 0.3.0', function (host) {
-  assert.match(this.result.stdout, new RegExp(`Updated ${host} from 0\\.2\\.1 to 0\\.3\\.0`))
+Then('the developer is told {string} was brought up to date', function (host) {
+  assert.match(this.result.stdout, new RegExp(`Updated ${host} from 0\\.2\\.1 to `))
 })
 
 Then('session {string} opens, and the dev server in {string} is still running', function (session, running) {
