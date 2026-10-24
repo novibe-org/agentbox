@@ -26,8 +26,36 @@ export function repoSource(spec: string): { repository: string; branch?: string 
 }
 
 function openSession(id: string): never {
-  if (process.env.CMUX_SOCKET_PATH) exec('cmux', ['ssh', `${id}.agentbox`, '-A', '--name', id])
+  if (process.env.CMUX_SOCKET_PATH) openInCmux(id)
   exec('ssh', ['-A', `${id}.agentbox`])
+}
+
+type CmuxWorkspace = { ref: string; remote?: { destination?: string | null } }
+type CmuxSession = { session_id: string; attachments: unknown[] }
+type CmuxPane = { ref: string; focused: boolean }
+
+function cmux<T>(args: string[]): T {
+  return JSON.parse(run('cmux', [...args, '--json']))
+}
+
+function openInCmux(id: string): never {
+  const workspace = cmux<{ workspaces: CmuxWorkspace[] }>(['workspace', 'list']).workspaces.find(
+    (w) => w.remote?.destination === `${id}.agentbox`,
+  )
+  if (!workspace) exec('cmux', ['ssh', `${id}.agentbox`, '-A', '--name', id])
+  run('cmux', ['select-workspace', '--workspace', workspace.ref], { stdout: 'ignore' })
+  const panes = cmux<{ panes: CmuxPane[] }>(['list-panes', '--workspace', workspace.ref]).panes
+  const pane = panes.find((p) => p.focused) ?? panes[0]
+  const lost = cmux<{ sessions: CmuxSession[] }>(['ssh-session-list', '--workspace', workspace.ref]).sessions.filter(
+    (s) => !s.attachments.length,
+  )
+  for (const s of lost) {
+    run('cmux', ['ssh-session-attach', '--session-id', s.session_id, '--workspace', workspace.ref, ...(pane ? ['--pane', pane.ref] : [])], {
+      stdout: 'ignore',
+    })
+  }
+  if (lost.length) console.error(`Brought back ${lost.length} ${lost.length === 1 ? 'tab' : 'tabs'} of ${id}`)
+  process.exit(0)
 }
 
 export async function newSession(id: string, repo: string | undefined, host: string | undefined): Promise<never> {
