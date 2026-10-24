@@ -159,10 +159,10 @@ export async function updateHost(name: string, tailnet: boolean): Promise<void> 
   tofu('apply', '-input=false', '-auto-approve', '-target=module.tailnet.tailscale_tailnet_key.host')
   const authKey = run('tofu', [`-chdir=${d}`, 'output', '-raw', 'auth_key']).trim()
   console.log(`Putting ${name} on your tailnet`)
-  const joined = await call<{ error?: string }>(name, 'PUT', '/tailnet', { authKey, hostname: name })
-  if (joined.status !== 204) fail(`${name} did not join your tailnet: ${joined.body?.error}`)
+  const joined = await call<{ dnsName?: string; error?: string }>(name, 'PUT', '/tailnet', { authKey, hostname: name })
+  const address = joined.body?.dnsName
+  if (joined.status !== 200 || !address) fail(`${name} did not join your tailnet: ${joined.body?.error}`)
   tofu('apply', '-input=false', '-auto-approve')
-  const address = await hostAddress(d)
   writeEntry(name, d, address)
   const answers = await request(name, 'GET', '/health', undefined, ['-o', 'ConnectTimeout=10', '-o', 'ControlPath=none']).catch(() => undefined)
   if (!answers) {

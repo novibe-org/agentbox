@@ -59,8 +59,8 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
   if (path === '/tailnet' && req.method === 'PUT') {
     const body = await readJson(req)
     if (!isTailnetRequest(body)) return send(res, 400, { error: 'Joining the tailnet needs an authKey and a hostname' })
-    const error = await joinTailnet(body)
-    return error ? send(res, 502, { error }) : send(res, 204)
+    const joined = await joinTailnet(body)
+    return 'error' in joined ? send(res, 502, joined) : send(res, 200, joined)
   }
   const id = path.match(/^\/sessions\/([^/]+)$/)?.[1]
   if (id && idPattern.test(id) && req.method === 'GET') {

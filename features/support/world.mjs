@@ -82,6 +82,7 @@ function destroy() {
     for (const key of ['ssh_host_ed25519_key', 'ssh_host_ed25519_key.pub']) writeFileSync(join(hosts, host, key), '', { flag: 'a' })
     spawnSync('tofu', [`-chdir=${join(hosts, host)}`, 'destroy', '-input=false', '-auto-approve'], { stdio: 'inherit' })
   }
+  spawnSync(join(repo, 'test/sweep'), { stdio: 'inherit' })
 }
 
 Before(reset)

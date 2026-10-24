@@ -94,8 +94,17 @@ paths:
           application/json:
             schema: { $ref: "#/components/schemas/TailnetRequest" }
       responses:
-        "204":
+        "200":
           description: The host is on the tailnet
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [dnsName]
+                properties:
+                  dnsName:
+                    type: string
+                    description: The host's MagicDNS name, such as devbox.example.ts.net
         "400":
           description: The request is malformed
           content:
