@@ -1,11 +1,13 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { home, hosts } from './paths.ts'
 
-// Apps such as cmux run ssh without the shell's PATH, so the proxy names this binary by its full path.
+const onPath = Bun.which('agentbox')
+const agentbox = onPath && realpathSync(onPath) === realpathSync(process.execPath) ? onPath : process.execPath
+
 const sessionsBlock = `Host *.agentbox
   User node
-  ProxyCommand "${process.execPath}" proxy %h
+  ProxyCommand "${agentbox}" proxy %h
   ForwardAgent yes
   StrictHostKeyChecking no
   UserKnownHostsFile /dev/null

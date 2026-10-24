@@ -52,7 +52,8 @@ export async function createHost(name: string, _provider: string, tailnet: boole
   ControlMaster auto
   ControlPath ~/.ssh/cm/%r@%h:%p
   ControlPersist 30m
-  ServerAliveInterval 20
+  ServerAliveInterval 5
+  ServerAliveCountMax 2
 
 `,
   )
