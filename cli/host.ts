@@ -102,7 +102,7 @@ function rootModule(name: string, tailnet: boolean, joining = false): string {
   ssh_public_key = file("\${path.module}/id_ed25519.pub")
   host_key       = file("\${path.module}/ssh_host_ed25519_key")
   host_key_pub   = file("\${path.module}/ssh_host_ed25519_key.pub")
-  release        = "${process.env.AGENTBOX_RELEASE || version}"${tailnet && !joining ? '\n  tailnet_auth_key = module.tailnet.auth_key' : ''}
+  release        = "${process.env.AGENTBOX_RELEASE || version}"${tailnet && !joining ? '\n  tailnet          = true\n  tailnet_auth_key = module.tailnet.auth_key' : ''}
 }
 
 output "ipv4" {

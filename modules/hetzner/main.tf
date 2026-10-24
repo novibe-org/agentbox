@@ -13,18 +13,27 @@ resource "hcloud_ssh_key" "host" {
   public_key = trimspace(var.ssh_public_key)
 }
 
-resource "hcloud_firewall" "host" {
-  name = "agentbox-${var.name}"
+# A firewall without rules lets nothing in; SSH is a firewall of its own, so leaving the internet
+# removes it whole instead of emptying a rule set.
+resource "hcloud_firewall" "base" {
+  name = "agentbox-${var.name}-base"
+}
 
-  dynamic "rule" {
-    for_each = var.tailnet_auth_key == null ? [22] : []
-    content {
-      direction  = "in"
-      protocol   = "tcp"
-      port       = tostring(rule.value)
-      source_ips = ["0.0.0.0/0", "::/0"]
-    }
+resource "hcloud_firewall" "ssh" {
+  count = var.tailnet ? 0 : 1
+  name  = "agentbox-${var.name}"
+
+  rule {
+    direction  = "in"
+    protocol   = "tcp"
+    port       = "22"
+    source_ips = ["0.0.0.0/0", "::/0"]
   }
+}
+
+moved {
+  from = hcloud_firewall.host
+  to   = hcloud_firewall.ssh[0]
 }
 
 resource "hcloud_volume" "state" {
@@ -40,7 +49,7 @@ resource "hcloud_server" "host" {
   image        = "ubuntu-24.04"
   location     = var.location
   ssh_keys     = [hcloud_ssh_key.host.id]
-  firewall_ids = [hcloud_firewall.host.id]
+  firewall_ids = concat([hcloud_firewall.base.id], hcloud_firewall.ssh[*].id)
   user_data = templatefile("${path.module}/cloud-init.yaml.tftpl", {
     ssh_public_key   = trimspace(var.ssh_public_key)
     volume_id        = hcloud_volume.state.id
