@@ -37,3 +37,4 @@ jobs:
           x 'docker run --rm --network host alpine wget -q -T 10 -O /dev/null http://deb.debian.org/debian/ && echo INNER-HOSTNET-OK || echo INNER-HOSTNET-FAIL'
           x 'tail -30 /var/log/docker.log 2>/dev/null || true'
           sudo k3s kubectl logs probe | grep -i -E "iptables|nat|error|warn" | tail -15
+# rerun 1792953731
