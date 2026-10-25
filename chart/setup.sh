@@ -3,7 +3,8 @@
 set -eu
 
 # The pod network can have a smaller MTU than Docker's default; larger packets would be lost.
-dockerd-entrypoint.sh dockerd --mtu="$(cat /sys/class/net/eth0/mtu)" >/var/log/dockerd.log 2>&1 &
+# Only the Unix socket: Docker's TCP port would let any pod in the cluster use this session's Docker.
+dockerd-entrypoint.sh dockerd --host=unix:///var/run/docker.sock --mtu="$(cat /sys/class/net/eth0/mtu)" >/var/log/dockerd.log 2>&1 &
 until docker info >/dev/null 2>&1; do sleep 1; done
 
 command -v devcontainer >/dev/null || {
