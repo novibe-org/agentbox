@@ -76,3 +76,23 @@ Feature: Host provisioning
       When the developer moves "devbox" onto their tailnet
       Then the developer is told "devbox" cannot be reached over their tailnet
       And session "fix-login" on "devbox" opens with its work intact
+
+  @id:docker-host
+  Rule: A developer without a server runs sessions sandboxed on their own Docker
+
+    Scenario: A new host on Docker runs sessions
+      Given the developer has no hosts yet
+      When the developer creates host "devbox" on Docker
+      Then session "fix-login" started on "devbox" from "acme/workspace" opens with the workspace checked out
+
+    Scenario: Without Docker no Docker host is created
+      Given the developer's Docker is not running
+      When the developer creates host "devbox" on Docker
+      Then the developer is told agentbox needs a running Docker
+      And the developer has no hosts
+
+    Scenario: A session on a Docker host cannot read the developer's files
+      Given the developer has host "devbox" on Docker with session "fix-login" on it
+      And the developer keeps a note in "~/private/notes.md"
+      When an agent in "fix-login" looks for "notes.md" on the machine
+      Then it does not find it
