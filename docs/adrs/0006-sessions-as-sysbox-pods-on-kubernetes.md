@@ -30,7 +30,7 @@ agentboxd (ADR 0003) is a session API of our own on every host: it creates, list
 
 Chosen option: "k3s on the host, each session a pod with the Sysbox runtime, set up by a Helm chart", because it puts sessions behind the Kubernetes API, and Sysbox gives each one its own Docker in a user namespace: root in a session is not root on the host, yet a workspace can start k3d and Tilt inside it.
 
-The CLI keeps creating hosts with OpenTofu and wraps `helm` and `kubectl` for sessions; it reaches the host's Kubernetes API, which listens on localhost only, through an SSH tunnel, on the tailnet too. A session pod clones the workspace repo and runs its `devcontainer.json` with the Dev Container CLI in its own Docker. A running host changes through OpenTofu: k3s through the system-upgrade-controller, and the rest through `remote-exec` steps that the module's variables trigger. The Hetzner module is written so that it can be used, and later published, on its own.
+The CLI keeps creating hosts with OpenTofu and wraps `helm` and `kubectl` for sessions; it reaches the host's Kubernetes API, which answers the host and its pods only, through an SSH tunnel, on the tailnet too. A session pod clones the workspace repo and runs its `devcontainer.json` with the Dev Container CLI in its own Docker. A running host changes through OpenTofu: k3s through the system-upgrade-controller, and the rest through `remote-exec` steps that the module's variables trigger. The Hetzner module is written so that it can be used, and later published, on its own.
 
 It supersedes ADR 0003, and replaces ADR 0005's "later changes reach a host through agentboxd" with OpenTofu. It shaped the views `containers` and `deployment`.
 

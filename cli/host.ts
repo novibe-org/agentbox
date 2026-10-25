@@ -2,10 +2,10 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { version } from '../package.json'
-import type { Health } from '../lib/api.ts'
 import { hostName } from '../lib/names.ts'
 import { fail, onPath, run, succeeds } from '../lib/process.ts'
 import { call, connect, request } from './client.ts'
+import { fetchKubeconfig } from './cluster.ts'
 import { hosts } from './paths.ts'
 import { writeSshConfig } from './ssh.ts'
 
@@ -38,21 +38,18 @@ export async function createHost(name: string, _provider: string, tailnet: boole
   writeEntry(name, d, address)
 
   const once = ['-o', 'ConnectTimeout=5', '-o', 'ControlPath=none']
-  let waiting = ''
-  for (let i = 0; i < 60; i++) {
-    const health = await request<Health>(name, 'GET', '/health', undefined, once).catch(() => undefined)
-    if (health?.body?.status === 'pass') {
+  console.log(`Waiting for ${name} to set up k3s and Sysbox`)
+  for (let i = 0; i < 120; i++) {
+    if (succeeds('ssh', [...once, name, 'sudo k3s kubectl get runtimeclass sysbox-runc'], { stderr: 'ignore' })) {
       console.log(`Replacing the host key of ${name}`)
       await rotateHostKey(name, d)
+      fetchKubeconfig(name)
       console.log(`Host ${name} is ready: agentbox new <id> <repo> --host ${name}`)
       return
     }
-    const now = health?.body ? Object.keys(health.body.checks).filter((check) => health.body.checks[check]?.some((c) => c.status === 'fail')).join(', ') : 'agentboxd to answer'
-    if (now !== waiting) console.log(`Waiting for ${name}: ${now}`)
-    waiting = now
     await sleep(5000)
   }
-  fail(`Host ${name} was created but is not ready after 5 minutes: ssh ${name} to look`)
+  fail(`Host ${name} was created but is not ready after 10 minutes: ssh ${name} to look`)
 }
 
 // Tailscale's device list can lag behind the joined device, leaving the address null until a refresh.

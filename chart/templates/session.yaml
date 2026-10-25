@@ -1,0 +1,61 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-setup
+data:
+  setup.sh: |
+{{ .Files.Get "setup.sh" | indent 4 }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ .Release.Name }}-workspace
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: {{ .Values.workspaceSize }}
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: {{ .Release.Name }}
+  labels:
+    agentbox.session: {{ .Release.Name }}
+spec:
+  runtimeClassName: sysbox-runc
+  hostUsers: false
+  containers:
+    - name: session
+      image: docker:dind
+      command: [sh, /agentbox/setup.sh]
+      env:
+        - {name: SESSION_ID, value: {{ .Release.Name | quote }}}
+        - {name: SESSION_REPOSITORY, value: {{ required "repository is required" .Values.repository | quote }}}
+        - {name: SESSION_BRANCH, value: {{ .Values.branch | quote }}}
+        - {name: SESSION_AUTHORIZED_KEY, value: {{ required "authorizedKey is required" .Values.authorizedKey | quote }}}
+        - {name: DOCKER_TLS_CERTDIR, value: ""}
+      readinessProbe:
+        exec:
+          command: [test, -f, /run/agentbox-ready]
+        periodSeconds: 5
+      volumeMounts:
+        - {name: setup, mountPath: /agentbox}
+        - {name: workspace, mountPath: /workspaces}
+        {{- range list "claude" "gh" "git" "pnpm-store" }}
+        - {name: {{ . }}, mountPath: /var/lib/agentbox/{{ . }}}
+        {{- end }}
+  volumes:
+    - name: setup
+      configMap:
+        name: {{ .Release.Name }}-setup
+    - name: workspace
+      persistentVolumeClaim:
+        claimName: {{ .Release.Name }}-workspace
+    # Shared by every session on the host, as the agentbox Feature expects
+    {{- range list "claude" "gh" "git" "pnpm-store" }}
+    - name: {{ . }}
+      hostPath:
+        path: /var/lib/agentbox/{{ . }}
+        type: DirectoryOrCreate
+    {{- end }}
