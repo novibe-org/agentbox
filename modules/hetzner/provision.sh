@@ -59,7 +59,9 @@ if ! command -v k3s >/dev/null; then
     --disable traefik --disable servicelb >/dev/null
 fi
 
+# A pod can be created once the node is ready and the default service account exists.
 until k3s kubectl get nodes 2>/dev/null | grep -q ' Ready'; do sleep 2; done
+until k3s kubectl get serviceaccount default >/dev/null 2>&1; do sleep 2; done
 k3s kubectl apply -f - >/dev/null <<'EOF'
 apiVersion: node.k8s.io/v1
 kind: RuntimeClass
