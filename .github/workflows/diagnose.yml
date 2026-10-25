@@ -35,9 +35,10 @@ jobs:
           x 'wget -q -T 10 -O /dev/null http://deb.debian.org/debian/ && echo POD-OK || echo POD-FAIL'
           x 'docker run --rm alpine wget -q -T 10 -O /dev/null http://deb.debian.org/debian/ && echo INNER-OK || echo INNER-FAIL'
           x 'docker run --rm --network host alpine wget -q -T 10 -O /dev/null http://deb.debian.org/debian/ && echo INNER-HOSTNET-OK || echo INNER-HOSTNET-FAIL'
-          sudo timeout 20 tcpdump -ni any -c 12 'icmp and host 1.1.1.1' > /tmp/td.txt 2>&1 &
+          sudo timeout 25 tcpdump -ni any -c 30 'tcp port 80 and host 151.101.2.132' > /tmp/td.txt 2>&1 &
           sleep 2
-          x 'docker run --rm alpine ping -c3 -W2 1.1.1.1'
+          x 'wget -q -T 8 -O /dev/null http://151.101.2.132/ 2>&1; echo pod-exit=$?'
+          x 'docker run --rm alpine wget -q -T 8 -O /dev/null http://151.101.2.132/ 2>&1; echo inner-exit=$?'
           wait; echo "### tcpdump on the node"; cat /tmp/td.txt
           echo "### node nat POSTROUTING"; sudo iptables -t nat -S POSTROUTING; sudo iptables -t nat -S FLANNEL-POSTRTG 2>/dev/null
           echo "### node routes"; ip route
