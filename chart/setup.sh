@@ -2,7 +2,8 @@
 # Runs in a session pod: its own Docker, the workspace clone, then the workspace's dev container.
 set -eu
 
-dockerd-entrypoint.sh dockerd >/var/log/dockerd.log 2>&1 &
+# The pod network can have a smaller MTU than Docker's default; larger packets would be lost.
+dockerd-entrypoint.sh dockerd --mtu="$(cat /sys/class/net/eth0/mtu)" >/var/log/dockerd.log 2>&1 &
 until docker info >/dev/null 2>&1; do sleep 1; done
 
 command -v devcontainer >/dev/null || {
