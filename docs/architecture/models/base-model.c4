@@ -77,7 +77,7 @@ model {
       technology 'Helm, over an SSH tunnel to the host\'s Kubernetes API'
     }
     cli -> session 'waits until set up, and connects to' {
-      technology 'SSH through kubectl exec, over the same tunnel'
+      technology 'SSH, through kubectl exec on the host'
     }
     session -> feature 'is built with'
   }

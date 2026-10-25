@@ -11,9 +11,13 @@ const home = homedir()
 const fixtures = mkdtempSync(join(tmpdir(), 'agentbox-fixtures-'))
 chmodSync(fixtures, 0o755)
 const cloud = process.env.AGENTBOX_CLOUD === '1'
-const workspace = `file://${fixtures}/acme/workspace.git`
-const app = `file://${fixtures}/acme/app.git`
+// Session pods clone over the network, as from GitHub: from a git daemon on the runner's address.
+const origin = cloud ? `file://${fixtures}` : `git://${execFileSync('hostname', ['-I'], { encoding: 'utf8' }).split(' ')[0]}`
+const workspace = `${origin}/acme/workspace.git`
+const app = `${origin}/acme/app.git`
+const servers = join(tmpdir(), 'agentbox-test-servers')
 let agent
+let daemon
 
 BeforeAll(() => {
   if (process.env.AGENTBOX_E2E !== '1') {
@@ -34,7 +38,7 @@ BeforeAll(() => {
         image: 'node:22-bookworm-slim',
         remoteUser: 'node',
         features: { './agentbox': {} },
-        mounts: [{ source: fixtures, target: fixtures, type: 'bind' }],
+        mounts: cloud ? [{ source: fixtures, target: fixtures, type: 'bind' }] : [],
         postCreateCommand: 'bash .devcontainer/setup.sh',
       },
       null,
@@ -44,6 +48,7 @@ BeforeAll(() => {
     '.gitignore': 'projects/\n',
   })
   execFileSync('sudo', ['chown', '-R', '1000:1000', fixtures])
+  if (!cloud) daemon = spawn('git', ['daemon', '--reuseaddr', '--export-all', `--base-path=${fixtures}`, fixtures], { stdio: 'ignore' })
 })
 
 function repository(name, files) {
@@ -61,16 +66,16 @@ function repository(name, files) {
 }
 
 AfterAll(() => {
+  daemon?.kill()
   if (agent) execFileSync('ssh-agent', ['-k'], { env: { ...process.env, ...agent }, stdio: 'ignore' })
   execFileSync('sudo', ['rm', '-rf', fixtures])
 })
 
 function reset() {
-  for (const label of ['agentbox.test=host', 'agentbox.session']) {
-    const ids = execFileSync('docker', ['ps', '-aq', '--filter', `label=${label}`], { encoding: 'utf8' }).split('\n').filter(Boolean)
-    if (ids.length) execFileSync('docker', ['rm', '-f', ...ids], { stdio: 'ignore' })
+  if (spawnSync('sh', ['-c', 'command -v k3s']).status === 0) {
+    execFileSync('sudo', ['k3s', 'kubectl', 'delete', 'pod,pvc,configmap,secret', '--all', '--wait=true'], { stdio: 'ignore' })
   }
-  execFileSync('sudo', ['rm', '-rf', '/var/lib/agentbox/sessions'])
+  rmSync(servers, { force: true })
   rmSync(join(home, '.agentbox'), { recursive: true, force: true })
   rmSync(join(home, '.ssh/agentbox.conf'), { force: true })
   rmSync(join(home, '.ssh/cm'), { recursive: true, force: true })
@@ -89,11 +94,10 @@ Before(reset)
 After(function ({ result }) {
   for (const undo of this.unblock) undo()
   if (cloud) destroy()
-  if (result?.status === 'FAILED') {
-    for (const host of this.testHosts()) {
-      const logs = spawnSync('docker', ['logs', '--tail', '80', host], { encoding: 'utf8' })
-      console.error(`--- test host ${host}\n${logs.stdout}${logs.stderr}`)
-    }
+  if (result?.status === 'FAILED' && this.testHosts().length) {
+    const pods = spawnSync('sudo', ['k3s', 'kubectl', 'describe', 'pods'], { encoding: 'utf8' })
+    const logs = spawnSync('sudo', ['k3s', 'kubectl', 'logs', '-l', 'agentbox.session', '--tail', '40'], { encoding: 'utf8' })
+    console.error(`--- session pods\n${pods.stdout}${logs.stdout}${logs.stderr}`)
   }
   reset()
 })
@@ -150,8 +154,9 @@ class World {
     return readFileSync(join(home, '.agentbox/sessions', session), 'utf8').trim()
   }
 
+  // The servers the fake tofu provided on this runner
   testHosts() {
-    return execFileSync('docker', ['ps', '-aq', '--filter', 'label=agentbox.test=host'], { encoding: 'utf8' }).split('\n').filter(Boolean)
+    return existsSync(servers) ? readFileSync(servers, 'utf8').split('\n').filter(Boolean) : []
   }
 }
 
