@@ -35,11 +35,11 @@ jobs:
           x 'wget -q -T 10 -O /dev/null http://deb.debian.org/debian/ && echo POD-OK || echo POD-FAIL'
           x 'docker run --rm alpine wget -q -T 10 -O /dev/null http://deb.debian.org/debian/ && echo INNER-OK || echo INNER-FAIL'
           x 'docker run --rm --network host alpine wget -q -T 10 -O /dev/null http://deb.debian.org/debian/ && echo INNER-HOSTNET-OK || echo INNER-HOSTNET-FAIL'
-          x 'ip -6 addr; ip -6 route'
-          x 'docker run --rm alpine sh -c "ip -6 addr; ip -6 route"'
-          x 'docker run --rm curlimages/curl:8.17.0 -4 -sS -m 15 -o /dev/null -w "v4 %{http_code} %{remote_ip}\n" http://deb.debian.org/debian/'
-          x 'docker run --rm curlimages/curl:8.17.0 -6 -sS -m 15 -o /dev/null -w "v6 %{http_code} %{remote_ip}\n" http://deb.debian.org/debian/'
-          x 'docker run --rm curlimages/curl:8.17.0 -sS -m 20 -o /dev/null -w "any %{http_code} %{remote_ip}\n" http://deb.debian.org/debian/'
+          x 'cat /sys/class/net/eth0/mtu'
+          x 'docker run --rm curlimages/curl:8.17.0 -4 -sS -m 20 -o /dev/null -w "before %{http_code} %{size_download}\n" http://deb.debian.org/debian/'
+          x 'iptables -t mangle -A FORWARD -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu && echo clamped'
+          x 'docker run --rm curlimages/curl:8.17.0 -4 -sS -m 20 -o /dev/null -w "after %{http_code} %{size_download}\n" http://deb.debian.org/debian/'
+          x 'printf "FROM debian:bookworm-slim\nRUN apt-get update -qq && echo APT-OK\n" > /tmp/Dockerfile && docker build -q --no-cache -f /tmp/Dockerfile /tmp >/dev/null && echo BUILD-OK || echo BUILD-FAIL'
           echo "### node nat POSTROUTING"; sudo iptables -t nat -S POSTROUTING; sudo iptables -t nat -S FLANNEL-POSTRTG 2>/dev/null
           echo "### node routes"; ip route
           x 'ss -ltn | grep 2375 || echo no-2375'
