@@ -98,6 +98,11 @@ After(function ({ result }) {
     const pods = spawnSync('sudo', ['k3s', 'kubectl', 'describe', 'pods'], { encoding: 'utf8' })
     const logs = spawnSync('sudo', ['k3s', 'kubectl', 'logs', '-l', 'agentbox.session', '--tail', '40'], { encoding: 'utf8' })
     console.error(`--- session pods\n${pods.stdout}${logs.stdout}${logs.stderr}`)
+    const sessions = join(home, '.agentbox/sessions')
+    for (const session of existsSync(sessions) ? readdirSync(sessions) : []) {
+      const ssh = spawnSync('ssh', ['-v', `${session}.agentbox`, 'true'], { env: this.env, encoding: 'utf8', input: '' })
+      console.error(`--- ssh ${session}.agentbox: exit ${ssh.status}\n${ssh.stderr.split('\n').slice(-25).join('\n')}`)
+    }
   }
   reset()
 })
