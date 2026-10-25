@@ -35,11 +35,10 @@ jobs:
           x 'wget -q -T 10 -O /dev/null http://deb.debian.org/debian/ && echo POD-OK || echo POD-FAIL'
           x 'docker run --rm alpine wget -q -T 10 -O /dev/null http://deb.debian.org/debian/ && echo INNER-OK || echo INNER-FAIL'
           x 'docker run --rm --network host alpine wget -q -T 10 -O /dev/null http://deb.debian.org/debian/ && echo INNER-HOSTNET-OK || echo INNER-HOSTNET-FAIL'
-          sudo timeout 25 tcpdump -ni any -c 30 'tcp port 80 and host 151.101.2.132' > /tmp/td.txt 2>&1 &
-          sleep 2
-          x 'wget -q -T 8 -O /dev/null http://151.101.2.132/ 2>&1; echo pod-exit=$?'
-          x 'docker run --rm alpine wget -q -T 8 -O /dev/null http://151.101.2.132/ 2>&1; echo inner-exit=$?'
-          wait; echo "### tcpdump on the node"; cat /tmp/td.txt
+          x 'cat /etc/resolv.conf; nslookup deb.debian.org 2>&1 | tail -6'
+          x 'docker run --rm alpine sh -c "cat /etc/resolv.conf; time nslookup deb.debian.org 2>&1 | tail -6"'
+          x 'docker run --rm alpine sh -c "time wget -q -T 15 -O /dev/null http://deb.debian.org/debian/; echo inner-exit=\$?"'
+          x 'docker run --rm --dns 1.1.1.1 alpine sh -c "time wget -q -T 15 -O /dev/null http://deb.debian.org/debian/; echo inner-public-dns-exit=\$?"'
           echo "### node nat POSTROUTING"; sudo iptables -t nat -S POSTROUTING; sudo iptables -t nat -S FLANNEL-POSTRTG 2>/dev/null
           echo "### node routes"; ip route
           x 'ss -ltn | grep 2375 || echo no-2375'
