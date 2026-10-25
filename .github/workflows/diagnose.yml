@@ -35,9 +35,12 @@ jobs:
           x 'wget -q -T 10 -O /dev/null http://deb.debian.org/debian/ && echo POD-OK || echo POD-FAIL'
           x 'docker run --rm alpine wget -q -T 10 -O /dev/null http://deb.debian.org/debian/ && echo INNER-OK || echo INNER-FAIL'
           x 'docker run --rm --network host alpine wget -q -T 10 -O /dev/null http://deb.debian.org/debian/ && echo INNER-HOSTNET-OK || echo INNER-HOSTNET-FAIL'
-          x 'iptables -S | head -40'
-          x 'sysctl net.ipv4.ip_forward net.ipv4.conf.all.rp_filter net.bridge.bridge-nf-call-iptables 2>&1'
-          x 'docker run --rm alpine sh -c "ip route; wget -q -T 5 -O /dev/null http://10.42.0.1:6443 2>&1; ping -c1 -W2 10.42.0.1; ping -c1 -W2 1.1.1.1"'
+          sudo timeout 20 tcpdump -ni any -c 12 'icmp and host 1.1.1.1' > /tmp/td.txt 2>&1 &
+          sleep 2
+          x 'docker run --rm alpine ping -c3 -W2 1.1.1.1'
+          wait; echo "### tcpdump on the node"; cat /tmp/td.txt
+          echo "### node nat POSTROUTING"; sudo iptables -t nat -S POSTROUTING; sudo iptables -t nat -S FLANNEL-POSTRTG 2>/dev/null
+          echo "### node routes"; ip route
           x 'ss -ltn | grep 2375 || echo no-2375'
           sudo k3s kubectl logs probe | grep -i -E "iptables|nat|error|warn" | tail -15
 # rerun 1792953731
