@@ -2,10 +2,14 @@
 # Runs in a session pod: its own Docker, the workspace clone, then the workspace's dev container.
 set -eu
 
-# The pod network can have a smaller MTU than Docker's default; larger packets would be lost.
 # Only the Unix socket: Docker's TCP port would let any pod in the cluster use this session's Docker.
-dockerd-entrypoint.sh dockerd --host=unix:///var/run/docker.sock --mtu="$(cat /sys/class/net/eth0/mtu)" >/var/log/dockerd.log 2>&1 &
+dockerd-entrypoint.sh dockerd --host=unix:///var/run/docker.sock >/var/log/dockerd.log 2>&1 &
 until docker info >/dev/null 2>&1; do sleep 1; done
+
+# The path out of the pod can carry smaller packets than Docker's bridge, and image builds ignore
+# Docker's MTU; clamping TCP's segment size keeps their downloads from stalling.
+iptables -t mangle -C FORWARD -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu 2>/dev/null ||
+  iptables -t mangle -A FORWARD -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu
 
 command -v devcontainer >/dev/null || {
   apk add -q git nodejs npm
