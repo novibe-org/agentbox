@@ -137,16 +137,6 @@ class World {
     if (result.status !== 0) throw new Error(`Cannot ship the fixtures to ${host}: ${result.stderr}`)
   }
 
-  // agentbox 0.2.1 from its release, for hosts from an older agentbox.
-  oldAgentbox() {
-    const binary = join(tmpdir(), 'agentbox-0.2.1')
-    if (!existsSync(binary)) {
-      execFileSync('curl', ['-fsSLo', binary, 'https://github.com/novibe-org/agentbox/releases/download/v0.2.1/agentbox-linux-x64'])
-      chmodSync(binary, 0o755)
-    }
-    return binary
-  }
-
   ssh(host, command) {
     return spawnSync('ssh', [host, command], { env: this.env, encoding: 'utf8', input: '' })
   }

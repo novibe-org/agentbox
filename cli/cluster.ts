@@ -50,7 +50,7 @@ export type Cluster = { run: (tool: Tool, args: string[]) => string; attempt: (t
 
 // The host's Kubernetes API answers the host and its pods only, so every call goes through an SSH tunnel.
 export async function withCluster<T>(host: string, work: (cluster: Cluster) => Promise<T>): Promise<T> {
-  if (!existsSync(kubeconfig(host))) fail(`Host ${host} has no Kubernetes access: it was created by an agentbox before 0.5, so create it again`)
+  if (!existsSync(kubeconfig(host))) fail(`${host} is too old to run sessions: it was created by an agentbox before 0.5, so create it again`)
   if (!onPath('helm') || !onPath('kubectl')) fail('agentbox needs Helm and kubectl for sessions: brew install helm kubernetes-cli')
   const port = await freePort()
   const tunnel = spawn('ssh', ['-N', '-o', 'ExitOnForwardFailure=yes', '-o', 'ControlPath=none', '-L', `${port}:127.0.0.1:${apiPort}`, host], {
