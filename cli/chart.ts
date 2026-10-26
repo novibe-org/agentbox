@@ -51,3 +51,36 @@ export async function awaitSetup(cluster: Cluster, id: string): Promise<void> {
     if (failed.status === 0) fail(`The setup of ${id} failed:\n${failed.stdout.trim()}`)
   }
 }
+
+export type ListedSession = { id: string; state: string }
+
+export function listSessionsOn(cluster: Cluster): ListedSession[] {
+  const pods = JSON.parse(cluster.run('kubectl', ['get', 'pods', '-l', 'agentbox.session', '-o', 'json'])) as {
+    items: { metadata: { name: string }; status: { phase: string; containerStatuses?: { ready: boolean }[] } }[]
+  }
+  return pods.items.map(({ metadata, status }) => ({
+    id: metadata.name,
+    state: status.containerStatuses?.[0]?.ready ? 'running' : status.phase.toLowerCase(),
+  }))
+}
+
+// Lists, inside the dev container, each repo of the workspace with work not yet pushed.
+const unpushedWork = (id: string) => `c=$(docker ps -q --filter label=devcontainer.local_folder=/workspaces/${id})
+[ -n "$c" ] || exit 3
+docker exec -u 1000 -w /workspaces/${id} "$c" sh -c '
+for repo in . $(find projects -mindepth 2 -maxdepth 2 -name .git 2>/dev/null | sed "s|/.git$||"); do
+  if [ -n "$(git -C "$repo" status --porcelain)" ] || [ -n "$(git -C "$repo" log --branches --not --remotes --oneline)" ]; then echo "$repo"; fi
+done'`
+
+export type Removed = { outcome: 'removed' } | { outcome: 'missing' } | { outcome: 'lost' } | { outcome: 'unpushed'; repos: string[] }
+
+export function removeSessionFrom(cluster: Cluster, id: string): Removed {
+  if (cluster.attempt('helm', ['status', id]).status !== 0) return { outcome: 'missing' }
+  const checked = cluster.attempt('kubectl', ['exec', id, '--', 'sh', '-c', unpushedWork(id)])
+  if (checked.status === 3) return { outcome: 'lost' }
+  if (checked.status !== 0) fail(`Cannot check the work in ${id}: ${checked.stderr.trim()}`)
+  const repos = checked.stdout.split('\n').filter(Boolean)
+  if (repos.length) return { outcome: 'unpushed', repos }
+  cluster.run('helm', ['uninstall', id, '--wait'])
+  return { outcome: 'removed' }
+}

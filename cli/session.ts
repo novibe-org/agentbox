@@ -1,11 +1,8 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { setTimeout as sleep } from 'node:timers/promises'
-import type { Refusal, Session } from '../lib/api.ts'
 import { hostName, sessionId } from '../lib/names.ts'
 import { Exit, exec, fail, run } from '../lib/process.ts'
-import { call, connect } from './client.ts'
-import { awaitSetup, installSession } from './chart.ts'
+import { awaitSetup, installSession, listSessionsOn, removeSessionFrom } from './chart.ts'
 import { withCluster } from './cluster.ts'
 import { home, hosts, sessions } from './paths.ts'
 
@@ -98,13 +95,12 @@ export async function listSessions(): Promise<void> {
   let listed = 0
   for (const host of all) {
     try {
-      await connect(host)
-      const { body } = await call<Session[]>(host, 'GET', '/sessions')
-      for (const s of body) console.log([s.id, host, s.status === 'ready' ? s.state : s.status].join('\t'))
-      listed += body.length
+      const found = await withCluster(host, async (cluster) => listSessionsOn(cluster))
+      for (const s of found) console.log([s.id, host, s.state].join('\t'))
+      listed += found.length
     } catch (error) {
       if (!(error instanceof Exit)) throw error
-      console.error(error.message)
+      console.error(`${host} does not answer: ${error.message}`)
       unreachable = true
     }
   }
@@ -115,12 +111,10 @@ export async function listSessions(): Promise<void> {
 export async function removeSession(id: string): Promise<void> {
   sessionId(id)
   const m = sessionHost(id)
-  await connect(m)
-  const { status, body } = await call<Refusal | undefined>(m, 'DELETE', `/sessions/${id}`)
-  if (status === 404) fail(`${m} has no session ${id}`)
-  if (status === 409 && body?.unpushed) fail(`Not deleting ${id}, unpushed or uncommitted work in:\n${body.unpushed.join('\n')}`)
-  if (status === 409) fail(`Not deleting ${id}: ${body?.error}`)
-  if (status !== 204) fail(`agentboxd on ${m} did not delete ${id}: ${body?.error}`)
+  const removed = await withCluster(m, async (cluster) => removeSessionFrom(cluster, id))
+  if (removed.outcome === 'missing') fail(`${m} has no session ${id}`)
+  if (removed.outcome === 'lost') fail(`Session ${id} has lost its container, so its work cannot be checked; its workspace stays on ${m}`)
+  if (removed.outcome === 'unpushed') fail(`Not deleting ${id}, unpushed or uncommitted work in:\n${removed.repos.join('\n')}`)
   rmSync(join(sessions, id), { force: true })
 }
 
