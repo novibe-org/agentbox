@@ -122,6 +122,6 @@ export function proxy(target: string): never {
   const id = sessionId(target.replace(/\.agentbox$/, ''))
   const startSshd = `c=$(docker ps -q --filter label=devcontainer.local_folder=/workspaces/${id}); ` +
     `[ -n "$c" ] || { echo "No session ${id} on this host" >&2; exit 1; }; ` +
-    `exec docker exec -i -u root $c sh -c "mkdir -p /run/sshd && exec /usr/sbin/sshd -i -e"`
+    `exec docker exec -i -u root $c sh -c "mkdir -p -m 755 /run/sshd && exec /usr/sbin/sshd -i -e"`
   exec('ssh', [sessionHost(id), `sudo k3s kubectl exec -i ${id} -- sh -c '${startSshd}'`])
 }
