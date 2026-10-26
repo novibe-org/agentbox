@@ -12,19 +12,25 @@ iptables -t mangle -C FORWARD -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-m
   iptables -t mangle -A FORWARD -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu
 
 command -v devcontainer >/dev/null || {
-  apk add -q git nodejs npm
+  apk add -q git github-cli nodejs npm
   npm install -g -s @devcontainers/cli@0.89.0
 }
 
 workspace="/workspaces/$SESSION_ID"
 # The dev container works as uid 1000.
 if [ ! -d "$workspace/.git" ]; then
-  git clone -q ${SESSION_BRANCH:+-b "$SESSION_BRANCH"} -- "$SESSION_REPOSITORY" "$workspace"
+  # A private repo clones with the GitHub login every session shares, when there is one.
+  GH_CONFIG_DIR=/var/lib/agentbox/gh GIT_TERMINAL_PROMPT=0 git \
+    -c credential.https://github.com.helper= -c 'credential.https://github.com.helper=!gh auth git-credential' \
+    clone -q ${SESSION_BRANCH:+-b "$SESSION_BRANCH"} -- "$SESSION_REPOSITORY" "$workspace"
   chown -R 1000:1000 "$workspace"
 fi
 # A failed setup keeps the pod up with its reason, so it can be read instead of restarting.
 log=/workspaces/.$SESSION_ID-setup.log
-if ! devcontainer up --workspace-folder "$workspace" >"$log" 2>&1; then
+# Without a lockfile in the repo, writing one would leave the clone with uncommitted work.
+lockfile=--no-lockfile
+if [ -f "$workspace/.devcontainer/devcontainer-lock.json" ] || [ -f "$workspace/.devcontainer-lock.json" ]; then lockfile=; fi
+if ! devcontainer up --workspace-folder "$workspace" $lockfile >"$log" 2>&1; then
   tail -n 40 "$log" > "$SESSION_FAILED_MARKER"
   cat "$SESSION_FAILED_MARKER"
   wait

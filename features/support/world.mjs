@@ -11,10 +11,10 @@ const home = homedir()
 const fixtures = mkdtempSync(join(tmpdir(), 'agentbox-fixtures-'))
 chmodSync(fixtures, 0o755)
 const cloud = process.env.AGENTBOX_CLOUD === '1'
-// Session pods clone over the network, as from GitHub: from a git daemon on the runner's address.
-const origin = cloud ? `file://${fixtures}` : `git://${execFileSync('hostname', ['-I'], { encoding: 'utf8' }).split(' ')[0]}`
-const workspace = `${origin}/acme/workspace.git`
-const app = `${origin}/acme/app.git`
+// Session pods clone over the network, as from GitHub: from a git daemon on the host's address,
+// which on a CI runner is the runner itself and on a real host comes with ship().
+const origin = (address) => `git://${address}`
+const runner = execFileSync('hostname', ['-I'], { encoding: 'utf8' }).split(' ')[0]
 const testHosts = join(tmpdir(), 'agentbox-test-hosts')
 let agent
 let daemon
@@ -38,13 +38,12 @@ BeforeAll(() => {
         image: 'node:22-bookworm-slim',
         remoteUser: 'node',
         features: { './agentbox': {} },
-        mounts: cloud ? [{ source: fixtures, target: fixtures, type: 'bind' }] : [],
         postCreateCommand: 'bash .devcontainer/setup.sh',
       },
       null,
       2,
     ),
-    '.devcontainer/setup.sh': `[ -d projects/app/.git ] || git clone -q ${app} projects/app\n`,
+    '.devcontainer/setup.sh': `[ -d projects/app/.git ] || git clone -q "$(git remote get-url origin | sed 's|/workspace.git$|/app.git|')" projects/app\n`,
     '.gitignore': 'projects/\n',
   })
   execFileSync('sudo', ['chown', '-R', '1000:1000', fixtures])
@@ -109,8 +108,8 @@ After(function ({ result }) {
 
 class World {
   constructor() {
-    this.workspace = workspace
-    this.app = app
+    this.workspace = `${origin(runner)}/acme/workspace.git`
+    this.app = `${origin(runner)}/acme/app.git`
     this.cloud = cloud
     this.unblock = []
     this.env = {
@@ -129,12 +128,20 @@ class World {
     return this.result
   }
 
-  // A real host clones the fixtures from its own disk, at the path the runner has them.
+  // A real host serves the fixtures to its session pods itself.
   ship(host) {
     if (!this.cloud) return
     const tar = spawnSync('tar', ['-C', fixtures, '-c', '.'])
-    const result = spawnSync('ssh', [host, `sudo mkdir -p ${fixtures} && sudo tar -C ${fixtures} -x && sudo chown -R 1000:1000 ${fixtures}`], { env: this.env, input: tar.stdout })
+    const served = '/var/lib/agentbox/fixtures'
+    const result = spawnSync(
+      'ssh',
+      [host, `sudo mkdir -p ${served} && sudo tar -C ${served} -x && sudo git daemon --detach --reuseaddr --export-all --base-path=${served} ${served} && hostname -I`],
+      { env: this.env, input: tar.stdout, encoding: 'utf8' },
+    )
     if (result.status !== 0) throw new Error(`Cannot ship the fixtures to ${host}: ${result.stderr}`)
+    const address = result.stdout.split(' ')[0].trim()
+    this.workspace = `${origin(address)}/acme/workspace.git`
+    this.app = `${origin(address)}/acme/app.git`
   }
 
   ssh(host, command) {

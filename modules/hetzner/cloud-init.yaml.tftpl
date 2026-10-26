@@ -16,12 +16,9 @@ users:
       - ${ssh_public_key}
 package_update: true
 packages:
-  - docker.io
-  - docker-buildx
   - git
   - gh
   - curl
-  - xz-utils
 write_files:
   - path: /etc/ssh/ssh_known_hosts
     content: |
@@ -39,52 +36,19 @@ write_files:
       grep -q "$dev" /etc/fstab || echo "$dev /var/lib/agentbox ext4 discard,nofail,nosuid,nodev,defaults 0 0" >> /etc/fstab
       mount /var/lib/agentbox
       chown 1000:1000 /var/lib/agentbox
-  - path: /usr/local/sbin/agentbox-install
+  - path: /usr/local/sbin/agentbox-provision
     permissions: "0755"
     content: |
-      #!/bin/sh
-      set -e
-      curl -fsSL https://nodejs.org/dist/v22.12.0/node-v22.12.0-linux-x64.tar.xz | tar -xJ -C /opt
-      mv /opt/node-v22.12.0-linux-x64 /opt/node
-      PATH=/opt/node/bin:$PATH npm i -g -s @devcontainers/cli@0.89.0
-      curl -fsSLo /usr/local/bin/agentboxd https://github.com/novibe-org/agentbox/releases/download/v${release}/agentboxd-linux-x64
-      chmod 755 /usr/local/bin/agentboxd
+      ${indent(6, provision)}
 %{ if tailnet_auth_key != "" ~}
   - path: /usr/local/sbin/agentbox-join-tailnet
     permissions: "0700"
     content: |
-      #!/bin/sh
-      set -e
-      mkdir -p /var/lib/agentbox/tailscale /var/lib/tailscale
-      grep -q " /var/lib/tailscale " /etc/fstab || echo "/var/lib/agentbox/tailscale /var/lib/tailscale none bind 0 0" >> /etc/fstab
-      mountpoint -q /var/lib/tailscale || mount /var/lib/tailscale
-      curl -fsSL https://tailscale.com/install.sh | sh
-      tailscale up --auth-key=${tailnet_auth_key} --hostname=${name}
+      ${indent(6, join_tailnet)}
 %{ endif ~}
-  - path: /etc/systemd/system/agentboxd.service
-    content: |
-      [Unit]
-      Description=agentbox session API
-      Requires=docker.service
-      After=docker.service
-      RequiresMountsFor=/var/lib/agentbox
-
-      [Service]
-      User=agentbox
-      SupplementaryGroups=docker
-      RuntimeDirectory=agentboxd
-      Environment=PATH=/opt/node/bin:/usr/local/bin:/usr/bin:/bin
-      ExecStart=/usr/local/bin/agentboxd serve
-      Restart=on-failure
-
-      [Install]
-      WantedBy=multi-user.target
 runcmd:
-  - usermod -aG docker agentbox
   - /usr/local/sbin/agentbox-mount-volume
 %{ if tailnet_auth_key != "" ~}
-  - /usr/local/sbin/agentbox-join-tailnet
+  - /usr/local/sbin/agentbox-join-tailnet '${tailnet_auth_key}' '${name}'
 %{ endif ~}
-  - /usr/local/sbin/agentbox-install
-  - systemctl daemon-reload
-  - systemctl enable --now agentboxd
+  - /usr/local/sbin/agentbox-provision

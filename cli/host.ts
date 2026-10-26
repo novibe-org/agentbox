@@ -4,7 +4,6 @@ import { setTimeout as sleep } from 'node:timers/promises'
 import { version } from '../package.json'
 import { hostName } from '../lib/names.ts'
 import { fail, onPath, run, succeeds } from '../lib/process.ts'
-import { call, connect, request } from './client.ts'
 import { fetchKubeconfig } from './cluster.ts'
 import { hosts } from './paths.ts'
 import { writeSshConfig } from './ssh.ts'
@@ -94,15 +93,22 @@ function moduleSource(module: string): string {
   return local ? join(local, module) : `git::https://github.com/novibe-org/agentbox.git//modules/${module}?ref=v${version}`
 }
 
-// AGENTBOX_RELEASE starts a test host from a published release while this version has none.
+// A host joins the tailnet at its first boot, or, already running, over SSH while its firewall still opens SSH.
 function rootModule(name: string, tailnet: boolean, joining = false): string {
+  const onTailnet = tailnet && !joining ? '\n  tailnet          = true\n  tailnet_auth_key = module.tailnet.auth_key' : ''
+  const join = joining
+    ? `
+  tailnet_auth_key  = module.tailnet.auth_key
+  join_running_host = true
+  ssh_private_key   = file("\${path.module}/id_ed25519")
+  ssh_host_key      = join(" ", slice(split(" ", trimspace(file("\${path.module}/known_hosts"))), 1, 3))`
+    : ''
   const host = `module "host" {
   source         = "${moduleSource('hetzner')}"
   name           = "${name}"
   ssh_public_key = file("\${path.module}/id_ed25519.pub")
   host_key       = file("\${path.module}/ssh_host_ed25519_key")
-  host_key_pub   = file("\${path.module}/ssh_host_ed25519_key.pub")
-  release        = "${process.env.AGENTBOX_RELEASE || version}"${tailnet && !joining ? '\n  tailnet          = true\n  tailnet_auth_key = module.tailnet.auth_key' : ''}
+  host_key_pub   = file("\${path.module}/ssh_host_ed25519_key.pub")${onTailnet}${join}
 }
 
 output "ipv4" {
@@ -124,11 +130,6 @@ module "tailnet" {
 output "address" {
   value = module.tailnet.dns_name
 }
-
-output "auth_key" {
-  value     = module.tailnet.auth_key
-  sensitive = true
-}
 `
 }
 
@@ -145,27 +146,22 @@ export async function updateHost(name: string, tailnet: boolean): Promise<void> 
   hostName(name)
   const d = join(hosts, name)
   if (!existsSync(d)) fail(`No host ${name}: agentbox host create ${name} --provider hetzner`)
-  if (tailnet) requireTailnetAccess()
-  await connect(name)
-  if (!tailnet) return console.log(`${name} runs agentbox ${version}`)
+  if (!existsSync(join(d, 'kubeconfig'))) fail(`${name} is too old to run sessions: it was created by an agentbox before 0.5, so create it again`)
+  if (!tailnet) return console.log(`${name} is up to date`)
+  requireTailnetAccess()
   if (readFileSync(join(d, 'main.tf'), 'utf8').includes('module "tailnet"')) return console.log(`${name} is on your tailnet`)
 
-  // Hosts from agentbox 0.2.1 deleted their first host key, which main.tf reads.
-  for (const key of ['ssh_host_ed25519_key', 'ssh_host_ed25519_key.pub']) writeFileSync(join(d, key), '', { flag: 'a' })
   const tofu = (...args: string[]) => run('tofu', [`-chdir=${d}`, ...args], { stdout: 'ignore' })
   const ip = run('tofu', [`-chdir=${d}`, 'output', '-raw', 'ipv4']).trim()
+  console.log(`Putting ${name} on your tailnet`)
   writeFileSync(join(d, 'main.tf'), rootModule(name, true, true))
   tofu('init', '-input=false', '-upgrade')
-  tofu('apply', '-input=false', '-auto-approve', '-target=module.tailnet.tailscale_tailnet_key.host')
-  const authKey = run('tofu', [`-chdir=${d}`, 'output', '-raw', 'auth_key']).trim()
-  console.log(`Putting ${name} on your tailnet`)
-  const joined = await call<{ dnsName?: string; error?: string }>(name, 'PUT', '/tailnet', { authKey, hostname: name })
-  const address = joined.body?.dnsName
-  if (joined.status !== 200 || !address) fail(`${name} did not join your tailnet: ${joined.body?.error}`)
   tofu('apply', '-input=false', '-auto-approve')
+  const status = JSON.parse(run('ssh', ['-o', 'ControlPath=none', name, 'sudo tailscale status --json'])) as { Self?: { DNSName?: string } }
+  const address = status.Self?.DNSName?.replace(/\.$/, '')
+  if (!address) fail(`${name} did not join your tailnet: it has no MagicDNS name`)
   writeEntry(name, d, address)
-  const answers = await request(name, 'GET', '/health', undefined, ['-o', 'ConnectTimeout=10', '-o', 'ControlPath=none']).catch(() => undefined)
-  if (!answers) {
+  if (!succeeds('ssh', ['-o', 'ConnectTimeout=10', '-o', 'ControlPath=none', name, 'true'], { stderr: 'ignore' })) {
     writeEntry(name, d, ip)
     fail(`${name} cannot be reached over your tailnet at ${address}, so it stays open to the internet: check that your tailnet policy lets you reach tag:agentbox on port 22`)
   }
