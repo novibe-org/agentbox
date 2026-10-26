@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: accepted, amended by ADR 0006
 date: 2026-10-23
 decision-makers: Stefan Stührmann
 ---

@@ -11,6 +11,9 @@ import { writeSshConfig } from './ssh.ts'
 
 export const providers = ['hetzner']
 
+const hostChecks = 120
+const hostCheckMs = 5000
+
 export async function createHost(name: string, _provider: string, tailnet: boolean): Promise<void> {
   hostName(name)
   const d = join(hosts, name)
@@ -39,7 +42,7 @@ export async function createHost(name: string, _provider: string, tailnet: boole
 
   const once = ['-o', 'ConnectTimeout=5', '-o', 'ControlPath=none']
   console.log(`Waiting for ${name} to set up k3s and Sysbox`)
-  for (let i = 0; i < 120; i++) {
+  for (let check = 0; check < hostChecks; check++) {
     if (succeeds('ssh', [...once, name, 'sudo k3s kubectl get runtimeclass sysbox-runc'], { stderr: 'ignore' })) {
       console.log(`Replacing the host key of ${name}`)
       await rotateHostKey(name, d)
@@ -47,9 +50,9 @@ export async function createHost(name: string, _provider: string, tailnet: boole
       console.log(`Host ${name} is ready: agentbox new <id> <repo> --host ${name}`)
       return
     }
-    await sleep(5000)
+    await sleep(hostCheckMs)
   }
-  fail(`Host ${name} was created but is not ready after 10 minutes: ssh ${name} to look`)
+  fail(`Host ${name} was created but is not ready after ${(hostChecks * hostCheckMs) / 60000} minutes: ssh ${name} to look`)
 }
 
 // Tailscale's device list can lag behind the joined device, leaving the address null until a refresh.

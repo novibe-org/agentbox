@@ -5,7 +5,8 @@ import type { Refusal, Session } from '../lib/api.ts'
 import { hostName, sessionId } from '../lib/names.ts'
 import { Exit, exec, fail, run } from '../lib/process.ts'
 import { call, connect } from './client.ts'
-import { withChart, withCluster } from './cluster.ts'
+import { awaitSetup, installSession } from './chart.ts'
+import { withCluster } from './cluster.ts'
 import { home, hosts, sessions } from './paths.ts'
 
 function machine(): string {
@@ -75,22 +76,12 @@ export async function newSession(id: string, repo: string | undefined, host: str
     rmSync(record, { force: true })
     return fail(message)
   }
-  await withCluster(m, async ({ run: cluster, attempt }) => {
-    const created = withChart((chart) => {
-      const settings = join(chart, 'session.json')
-      writeFileSync(settings, JSON.stringify({ repository: source.repository, branch: source.branch ?? '', authorizedKey }))
-      return attempt('helm', ['install', id, chart, '-f', settings])
-    })
-    if (/cannot re-use a name that is still in use/.test(created.stderr)) refuse(`Session ${id} already exists on ${m}`)
-    if (created.status !== 0) refuse(`${m} did not take session ${id}: ${created.stderr.trim()}`)
-
+  await withCluster(m, async (cluster) => {
+    const installed = installSession(cluster, id, { repository: source.repository, branch: source.branch ?? '', authorizedKey })
+    if (installed.outcome === 'taken') refuse(`Session ${id} already exists on ${m}`)
+    if (installed.outcome === 'refused') refuse(`${m} did not take session ${id}: ${installed.reason}`)
     console.log(`Setting up ${id} on ${m}`)
-    for (;;) {
-      await sleep(3000)
-      if (cluster('kubectl', ['get', 'pod', id, '-o', 'jsonpath={.status.containerStatuses[0].ready}']).trim() === 'true') return
-      const failed = attempt('kubectl', ['exec', id, '--', 'cat', '/run/agentbox-failed'])
-      if (failed.status === 0) fail(`The setup of ${id} failed:\n${failed.stdout.trim()}`)
-    }
+    await awaitSetup(cluster, id)
   })
   openSession(id)
 }
@@ -135,8 +126,8 @@ export async function removeSession(id: string): Promise<void> {
 
 export function proxy(target: string): never {
   const id = sessionId(target.replace(/\.agentbox$/, ''))
-  const devContainer = `c=$(docker ps -q --filter label=devcontainer.local_folder=/workspaces/${id}); ` +
+  const startSshd = `c=$(docker ps -q --filter label=devcontainer.local_folder=/workspaces/${id}); ` +
     `[ -n "$c" ] || { echo "No session ${id} on this host" >&2; exit 1; }; ` +
     `exec docker exec -i -u root $c sh -c "mkdir -p /run/sshd && exec /usr/sbin/sshd -i"`
-  exec('ssh', [sessionHost(id), `sudo k3s kubectl exec -i ${id} -- sh -c '${devContainer}'`])
+  exec('ssh', [sessionHost(id), `sudo k3s kubectl exec -i ${id} -- sh -c '${startSshd}'`])
 }

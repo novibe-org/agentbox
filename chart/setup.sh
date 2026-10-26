@@ -17,7 +17,7 @@ command -v devcontainer >/dev/null || {
 }
 
 workspace="/workspaces/$SESSION_ID"
-# The dev container works as uid 1000, as sessions on a host did.
+# The dev container works as uid 1000.
 if [ ! -d "$workspace/.git" ]; then
   git clone -q ${SESSION_BRANCH:+-b "$SESSION_BRANCH"} -- "$SESSION_REPOSITORY" "$workspace"
   chown -R 1000:1000 "$workspace"
@@ -25,8 +25,8 @@ fi
 # A failed setup keeps the pod up with its reason, so it can be read instead of restarting.
 log=/workspaces/.$SESSION_ID-setup.log
 if ! devcontainer up --workspace-folder "$workspace" >"$log" 2>&1; then
-  tail -n 40 "$log" > /run/agentbox-failed
-  cat /run/agentbox-failed
+  tail -n 40 "$log" > "$SESSION_FAILED_MARKER"
+  cat "$SESSION_FAILED_MARKER"
   wait
 fi
 
@@ -34,5 +34,5 @@ container=$(docker ps -q --filter "label=devcontainer.local_folder=$workspace")
 docker exec -i -u 1000 "$container" sh -c 'umask 077 && mkdir -p ~/.ssh && cat >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys' <<KEY
 $SESSION_AUTHORIZED_KEY
 KEY
-touch /run/agentbox-ready
+touch "$SESSION_READY_MARKER"
 wait

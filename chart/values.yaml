@@ -6,3 +6,6 @@ branch: ""
 authorizedKey: ""
 # Size of the volume that holds the workspace clone
 workspaceSize: 10Gi
+# Files the session pod creates when its setup is done or has failed; the CLI sets them
+readyMarker: ""
+failedMarker: ""

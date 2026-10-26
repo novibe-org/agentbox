@@ -15,7 +15,7 @@ const cloud = process.env.AGENTBOX_CLOUD === '1'
 const origin = cloud ? `file://${fixtures}` : `git://${execFileSync('hostname', ['-I'], { encoding: 'utf8' }).split(' ')[0]}`
 const workspace = `${origin}/acme/workspace.git`
 const app = `${origin}/acme/app.git`
-const servers = join(tmpdir(), 'agentbox-test-servers')
+const testHosts = join(tmpdir(), 'agentbox-test-hosts')
 let agent
 let daemon
 
@@ -75,7 +75,7 @@ function reset() {
   if (spawnSync('sh', ['-c', 'command -v k3s']).status === 0) {
     execFileSync('sudo', ['k3s', 'kubectl', 'delete', 'pod,pvc,configmap,secret', '--all', '--wait=true'], { stdio: 'ignore' })
   }
-  rmSync(servers, { force: true })
+  rmSync(testHosts, { force: true })
   rmSync(join(home, '.agentbox'), { recursive: true, force: true })
   rmSync(join(home, '.ssh/agentbox.conf'), { force: true })
   rmSync(join(home, '.ssh/cm'), { recursive: true, force: true })
@@ -119,6 +119,7 @@ class World {
       PATH: cloud ? `${repo}/dist:${process.env.PATH}` : `${repo}/test/bin:${repo}/dist:${process.env.PATH}`,
       HCLOUD_TOKEN: cloud ? process.env.HCLOUD_TOKEN : 'test-token',
       AGENTBOX_TEST_FIXTURES: fixtures,
+      AGENTBOX_TEST_HOSTS: testHosts,
     }
     delete this.env.AGENTBOX_MACHINE
   }
@@ -159,9 +160,9 @@ class World {
     return readFileSync(join(home, '.agentbox/sessions', session), 'utf8').trim()
   }
 
-  // The servers the fake tofu provided on this runner
+  // The hosts the fake tofu provided on this runner
   testHosts() {
-    return existsSync(servers) ? readFileSync(servers, 'utf8').split('\n').filter(Boolean) : []
+    return existsSync(testHosts) ? readFileSync(testHosts, 'utf8').split('\n').filter(Boolean) : []
   }
 }
 

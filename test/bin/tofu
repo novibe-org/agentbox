@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
-# Stands in for OpenTofu on a CI runner: the runner itself becomes the host,
-# set up by the same provision.sh that cloud-init runs on Hetzner.
+# Stands in for OpenTofu on a CI runner: the runner itself becomes the host, set up by provision.sh.
 set -euo pipefail
 repo=$(cd "$(dirname "$0")/../.." && pwd)
 d=${1#-chdir=}
@@ -17,7 +16,7 @@ case $2 in
     sudo systemctl restart ssh
     sudo sh "$repo/modules/hetzner/provision.sh" >/dev/null
     echo '{}' > "$d/terraform.tfstate"
-    basename "$d" >> /tmp/agentbox-test-servers
+    basename "$d" >> "$AGENTBOX_TEST_HOSTS"
     ;;
   output)
     if [ "${3:-}" = -json ]; then echo '{"address":{"value":"127.0.0.1"},"ipv4":{"value":"127.0.0.1"}}'; else echo 127.0.0.1; fi

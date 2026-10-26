@@ -43,7 +43,7 @@ model {
       description '~/.ssh/agentbox.conf: every host and the *.agentbox block, included from ~/.ssh/config.'
     }
     hetznerModule = library 'Hetzner module' {
-      description 'OpenTofu module for an agentbox box on Hetzner, usable on its own with tofu apply: an Ubuntu server with k3s and Sysbox, its volume and firewall, optionally on the tailnet.'
+      description 'OpenTofu module for an agentbox host on Hetzner, usable on its own with tofu apply: an Ubuntu server with k3s and Sysbox, its volume and firewall, optionally on the tailnet.'
       technology 'OpenTofu, hetznercloud/hcloud'
     }
     tailscaleModule = library 'Tailscale module' {
@@ -63,7 +63,7 @@ model {
       technology 'git over HTTPS for GitHub, with the GitHub CLI\'s credential helper'
     }
 
-    cli -> hostRegistry 'keeps each host\'s state in'
+    cli -> hostRegistry 'keeps each host\'s state, and the kubeconfig it reads from the host over SSH, in'
     cli -> sessionRegistry 'records each session\'s host in'
     cli -> sshConfig 'writes each host\'s entry to, by its MagicDNS name for a host on the tailnet'
     cli -> hetznerModule 'applies, fetched by its release tag' {
@@ -76,7 +76,10 @@ model {
     cli -> sessionChart 'installs, lists and uninstalls one release per session' {
       technology 'Helm, over an SSH tunnel to the host\'s Kubernetes API'
     }
-    cli -> session 'waits until set up, and connects to' {
+    cli -> session 'waits until set up' {
+      technology 'kubectl, over the SSH tunnel'
+    }
+    cli -> session 'connects to' {
       technology 'SSH, through kubectl exec on the host'
     }
     session -> feature 'is built with'
