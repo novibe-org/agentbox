@@ -27,8 +27,7 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm run build
-      - run: docker build -q -t agentbox-test-host test/host
-      - run: sudo install -d -o 1000 -g 1000 /var/lib/agentbox
+      - run: helm version --short && kubectl version --client
       - run: npm test
         env:
           AGENTBOX_E2E: "1"

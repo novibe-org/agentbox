@@ -55,7 +55,8 @@ resource "hcloud_server" "host" {
     volume_id        = hcloud_volume.state.id
     host_key         = trimspace(var.host_key)
     host_key_pub     = trimspace(var.host_key_pub)
-    release          = var.release
+    provision        = file("${path.module}/provision.sh")
+    join_tailnet     = file("${path.module}/join-tailnet.sh")
     name             = var.name
     tailnet_auth_key = var.tailnet_auth_key == null ? "" : var.tailnet_auth_key
   })
@@ -68,4 +69,27 @@ resource "hcloud_server" "host" {
 resource "hcloud_volume_attachment" "state" {
   volume_id = hcloud_volume.state.id
   server_id = hcloud_server.host.id
+}
+
+# A server's cloud-init runs at its first boot only, so a running server joins the tailnet over SSH.
+resource "terraform_data" "tailnet_join" {
+  count            = var.join_running_host ? 1 : 0
+  triggers_replace = [hcloud_server.host.id]
+
+  connection {
+    type        = "ssh"
+    host        = hcloud_server.host.ipv4_address
+    user        = "agentbox"
+    private_key = var.ssh_private_key
+    host_key    = var.ssh_host_key
+  }
+
+  provisioner "file" {
+    source      = "${path.module}/join-tailnet.sh"
+    destination = "/tmp/agentbox-join-tailnet"
+  }
+
+  provisioner "remote-exec" {
+    inline = ["sudo sh /tmp/agentbox-join-tailnet '${var.tailnet_auth_key}' '${var.name}'", "rm /tmp/agentbox-join-tailnet"]
+  }
 }

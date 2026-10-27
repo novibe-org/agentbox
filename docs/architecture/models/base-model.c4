@@ -30,11 +30,11 @@ model {
 
     cli = application 'CLI' {
       description 'The agentbox command on the developer\'s machine, one compiled binary per platform.'
-      technology 'TypeScript, Commander, Bun; OpenTofu, Dev Container CLI'
+      technology 'TypeScript, Commander, Bun; OpenTofu, Helm, kubectl'
     }
     hostRegistry = store 'Host registry' {
       description 'One directory per host under ~/.agentbox/hosts, holding its OpenTofu state.'
-      technology 'OpenTofu state, SSH key pair'
+      technology 'OpenTofu state, SSH key pair, kubeconfig'
     }
     sessionRegistry = store 'Session registry' {
       description 'One file per session under ~/.agentbox/sessions, naming the host it runs on.'
@@ -43,27 +43,27 @@ model {
       description '~/.ssh/agentbox.conf: every host and the *.agentbox block, included from ~/.ssh/config.'
     }
     hetznerModule = library 'Hetzner module' {
-      description 'OpenTofu module for a host on Hetzner: server, volume, firewall and cloud-init, which runs at the first boot only, so a later change to it keeps the server.'
+      description 'OpenTofu module for an agentbox host on Hetzner, usable on its own with tofu apply: an Ubuntu server with k3s and Sysbox, its volume and firewall, optionally on the tailnet.'
       technology 'OpenTofu, hetznercloud/hcloud'
     }
     tailscaleModule = library 'Tailscale module' {
       description 'OpenTofu module for a host on the tailnet: its auth key and its MagicDNS name.'
       technology 'OpenTofu, tailscale/tailscale'
     }
-    agentboxd = application 'agentboxd' {
-      description 'The session API on each host: creates, lists and deletes the host\'s sessions, and reports the host\'s health.'
-      technology 'TypeScript, Bun, HTTP on a Unix socket'
+    sessionChart = library 'Session chart' {
+      description 'Helm chart for one session: its pod and its volumes.'
+      technology 'Helm'
     }
     session = application 'Session' {
-      description 'One dev container per session, with its own clone of the workspace repo.'
-      technology 'Dev container, sshd'
+      description 'One Sysbox pod per session, which clones the workspace repo and runs its dev container in its own Docker.'
+      technology 'Kubernetes pod, Sysbox, Dev Container CLI, Docker, sshd'
     }
     feature = library 'Feature' {
       description 'The devcontainer Feature ghcr.io/novibe-org/agentbox/agentbox.'
       technology 'git over HTTPS for GitHub, with the GitHub CLI\'s credential helper'
     }
 
-    cli -> hostRegistry 'keeps each host\'s state in'
+    cli -> hostRegistry 'keeps each host\'s state, and the kubeconfig it reads from the host over SSH, in'
     cli -> sessionRegistry 'records each session\'s host in'
     cli -> sshConfig 'writes each host\'s entry to, by its MagicDNS name for a host on the tailnet'
     cli -> hetznerModule 'applies, fetched by its release tag' {
@@ -73,20 +73,14 @@ model {
       technology 'OpenTofu'
     }
     cli -> hetznerModule 'passes the tailnet auth key to'
-    cli -> agentboxd 'replaces with its own version' {
-      technology 'SSH and sudo, from the release on GitHub'
+    cli -> sessionChart 'installs, lists and uninstalls one release per session' {
+      technology 'Helm, over an SSH tunnel to the host\'s Kubernetes API'
     }
-    cli -> agentboxd 'puts the host on the tailnet with an auth key' {
-      technology 'HTTP over SSH'
+    cli -> session 'waits until set up' {
+      technology 'kubectl, over the SSH tunnel'
     }
-    cli -> agentboxd 'creates, lists and deletes sessions with, and waits for a session to be set up' {
-      technology 'HTTP over SSH'
-    }
-    cli -> session 'connects to, through the host' {
-      technology 'SSH'
-    }
-    agentboxd -> session 'builds and sets up, in the background; finds by its label' {
-      technology 'Dev Container CLI, Docker'
+    cli -> session 'connects to' {
+      technology 'SSH, through kubectl exec on the host'
     }
     session -> feature 'is built with'
   }
@@ -98,13 +92,10 @@ model {
   agentbox.tailscaleModule -> tailscale 'creates a single-use auth key tagged tag:agentbox on, and reads the joined host\'s MagicDNS name from' {
     technology 'Tailscale API, an OAuth client from the environment'
   }
-  agentbox.agentboxd -> tailscale 'joins the tailnet with the auth key' {
-    technology 'tailscaled'
+  agentbox.hetznerModule -> tailscale 'joins a running host to the tailnet with the auth key' {
+    technology 'remote-exec over SSH, tailscaled'
   }
-  agentbox.agentboxd -> github 'clones the workspace repo from' {
-    technology 'HTTPS, the host\'s GitHub login if there is one'
-  }
-  agentbox.session -> github 'clones the workspace\'s repos from, and pushes to' {
+  agentbox.session -> github 'clones the workspace repo and its repos from, and pushes to' {
     technology 'HTTPS, the shared GitHub login if there is one'
   }
 }

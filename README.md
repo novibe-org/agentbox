@@ -8,7 +8,7 @@ agentbox is three things:
 
 - **A devcontainer Feature**, `ghcr.io/novibe-org/agentbox/agentbox`: sshd, helix, yazi, lazygit, delta, ripgrep, Cloudflare's [security-audit](https://github.com/cloudflare/security-audit-skill) skill, and the mounts that share session state across containers.
 - **A CLI**, `agentbox`, that creates hosts and creates, opens, lists and deletes sessions from your machine.
-- **A session API**, `agentboxd`, on each host, which creates its sessions and sets them up, whether your machine stays connected or not.
+- **A Helm chart** for one session: a pod on the host's [k3s](https://k3s.io) that runs with [Sysbox](https://github.com/nestybox/sysbox), has its own Docker, and sets its session up whether your machine stays connected or not.
 
 ## Isolation
 
@@ -23,7 +23,7 @@ Sessions are isolated from each other and from your laptop, not from your accoun
 
 ## The session host
 
-A host is a server that `agentbox host create` made: Docker, Node, the Dev Container CLI and `agentboxd`, with a volume at `/var/lib/agentbox`, owned by uid 1000, that holds the shared state mounted into every session:
+A host is a server that `agentbox host create` made: k3s, whose session pods run with the Sysbox runtime, and a volume at `/var/lib/agentbox`, owned by uid 1000, that holds the shared state mounted into every session:
 
 | Host                           | Container              | Holds                       |
 | ------------------------------ | ---------------------- | --------------------------- |
@@ -34,13 +34,13 @@ A host is a server that `agentbox host create` made: Docker, Node, the Dev Conta
 
 The `security-audit` skill is installed in Claude Code's managed skills folder, `/etc/claude-code/.claude/skills/`, so it is in every session without touching the shared config.
 
-agentboxd creates these directories if they are missing, and clones each session's workspace repo into `/var/lib/agentbox/sessions/<id>`, mounted at `/workspaces/<id>`. A session's container carries the label `agentbox.session=<id>`. The container user must be uid 1000, as `node` is in the Node images.
+A session is a pod named after it, with the label `agentbox.session=<id>`. It clones the workspace repo onto its own volume at `/workspaces/<id>` and runs the repo's dev container in its own Docker, so the session can run containers, or a local Kubernetes cluster, without reaching the host's. Root in a session is not root on the host: Sysbox maps it to an unprivileged user. The dev container user must be uid 1000, as `node` is in the Node images.
 
-A workspace can share its own state the same way: keep it in another directory under `/var/lib/agentbox` and add a `mounts` entry to its `devcontainer.json`. The directory must exist before the session is created, or Docker creates it empty and owned by root.
+The shared directories are on the volume, mounted `nosuid,nodev`, and every session can write them.
 
 ### A host on Hetzner
 
-`agentbox host create` creates the host with [OpenTofu](https://opentofu.org) and the module in [`modules/hetzner`](modules/hetzner): a server with Docker, the `agentbox` user and `agentboxd` of the CLI's version, a volume mounted at `/var/lib/agentbox`, and a firewall that lets in SSH only, or nothing for a host on your tailnet. Session clones and the shared logins live on the volume; containers and images live on the server's own disk.
+`agentbox host create` creates the host with [OpenTofu](https://opentofu.org) and the module in [`modules/hetzner`](modules/hetzner): an Ubuntu server with the `agentbox` user, a volume mounted at `/var/lib/agentbox`, and a firewall that lets in SSH only, or nothing for a host on your tailnet. Its cloud-init runs [`provision.sh`](modules/hetzner/provision.sh), which installs k3s and Sysbox and closes the Kubernetes API to all but the host and its pods. Session workspaces and the shared logins live on the volume; the sessions' images live on the server's own disk.
 
 Create an API token with read and write access in the [Hetzner Console](https://console.hetzner.com), under your project's Security > API tokens, then:
 
@@ -49,7 +49,7 @@ export HCLOUD_TOKEN=<token>
 agentbox host create devbox --provider hetzner
 ```
 
-The server is a `cpx32` (4 vCPU, 8 GB) in Nuremberg with a 50 GB volume. Each host keeps its OpenTofu state and its own SSH key in `~/.agentbox/hosts/<name>`; keep that directory, as it is what deletes the host later. `agentbox host create` refuses a name you already have, and returns once agentboxd reports the host healthy. When a newer agentbox first uses a host, it brings the host's agentboxd to its own version, and the sessions on it keep running; it waits while a session is being set up.
+The server is a `cpx32` (4 vCPU, 8 GB) in Nuremberg with a 50 GB volume. Each host keeps its OpenTofu state and its own SSH key in `~/.agentbox/hosts/<name>`; keep that directory, as it is what deletes the host later. `agentbox host create` refuses a name you already have, and returns once k3s runs with Sysbox; it keeps the host's kubeconfig there too. A host created by an agentbox before 0.5 runs agentboxd, not k3s, and has to be created again.
 
 The CLI writes every host it creates, and the way into sessions, to `~/.ssh/agentbox.conf`, and puts `Include agentbox.conf` at the top of `~/.ssh/config`. `ssh devbox` reaches the host, and `<id>.agentbox` a session.
 
@@ -79,18 +79,20 @@ Tailscale's default policy lets every device reach every other, so the coding ag
 
 ### Other hosts
 
-Hosts agentbox did not create have no agentboxd, and this version runs no sessions on them. Hosts created with DevPod, such as an earlier `claude-box`, keep working with [agentbox 0.1.0](https://github.com/novibe-org/agentbox/tree/v0.1.0) and Feature `:2`.
+Hosts agentbox did not create run no sessions of this version. Hosts created with DevPod, such as an earlier `claude-box`, keep working with [agentbox 0.1.0](https://github.com/novibe-org/agentbox/tree/v0.1.0) and Feature `:2`.
 
-### The session API
+### Kubernetes on the host
 
-agentboxd serves the API in [`agentboxd/openapi.yaml`](agentboxd/openapi.yaml) on a Unix socket, `/run/agentboxd/agentboxd.sock`, that only the `agentbox` user can open. No port is open for it: the CLI reaches it over SSH with `ssh <host> agentboxd dial-stdio`, as Docker's CLI reaches `dockerd`. It keeps one record per session, whether its setup finished or why it failed; the labelled containers and the clones hold the rest.
+The CLI reaches the host's Kubernetes API through an SSH tunnel, as no port is open for it, with [Helm](https://helm.sh) and [kubectl](https://kubernetes.io/docs/reference/kubectl/), which it needs on your machine (`brew install helm kubernetes-cli`). You can use them yourself the same way:
 
 ```bash
-ssh devbox 'curl -s --unix-socket /run/agentboxd/agentboxd.sock http://agentboxd/health'   # what the host can do
-ssh devbox journalctl -u agentboxd                                                        # its log
+ssh -N -L 6443:127.0.0.1:6443 devbox &
+kubectl --kubeconfig ~/.agentbox/hosts/devbox/kubeconfig get pods        # the sessions
+kubectl --kubeconfig ~/.agentbox/hosts/devbox/kubeconfig logs fix-login  # a session's setup
+helm --kubeconfig ~/.agentbox/hosts/devbox/kubeconfig list               # one release per session
 ```
 
-The CLI and agentboxd change together, so the CLI refuses a host whose agentboxd is on another version.
+The session chart is part of the CLI, so a session is made by the chart of the agentbox that created it.
 
 ## A workspace
 
@@ -101,7 +103,6 @@ A workspace is a git repo whose `.devcontainer` uses the Feature and clones the 
 {
   "name": "myworkspace",
   "image": "mcr.microsoft.com/devcontainers/typescript-node:22",
-  "runArgs": ["--restart=unless-stopped"],
   "features": {
     "ghcr.io/anthropics/devcontainer-features/claude-code:1": {},
     "ghcr.io/devcontainers/features/github-cli:1": {},
@@ -120,13 +121,12 @@ done
 (cd projects/app && pnpm install --frozen-lockfile)
 ```
 
-Sessions clone and push GitHub over HTTPS with the shared GitHub login, or without credentials for a public repo before anyone has logged in; the Feature rewrites `git@github.com:` URLs to HTTPS, so existing setups keep working. agentboxd runs the setup without your machine, so it cannot use your SSH agent.
+Sessions clone and push GitHub over HTTPS with the shared GitHub login, or without credentials for a public repo before anyone has logged in; the Feature rewrites `git@github.com:` URLs to HTTPS, so existing setups keep working. The session pod runs the setup without your machine, so it cannot use your SSH agent.
 
 `agentbox rm` checks the workspace repo and every repo under `projects/` for unpushed work before deleting.
 
 Good habits for a workspace repo:
 
-- **Restart with the host**: `runArgs: ["--restart=unless-stopped"]`, as above, brings sessions back after the host or Docker restarts.
 - **Ignore `projects/`** in its `.gitignore`. The cloned repos stay independent; `git add projects/` would turn them into gitlinks.
 - **Keep `setup.sh` idempotent**: guard each clone, as above, so a rebuild doesn't fail on what is already there.
 - **Install from lockfiles** (`--frozen-lockfile`, `npm ci`). With the shared pnpm store, a second session installs mostly from cache.
@@ -162,7 +162,7 @@ agentbox ls
 agentbox rm fix-login
 ```
 
-`agentbox new` asks the host's agentboxd to create the session, records its host in `~/.agentbox/sessions/<id>`, and opens it once it is set up. The host sets it up whatever happens to your machine meanwhile. A session id is unique across your hosts. `open`, `rm` and `<id>.agentbox` find the session by its record; `<id>.agentbox` goes straight into the session's container through the host, and starts the container first if it is stopped.
+`agentbox new` installs the session's chart on the host, records its host in `~/.agentbox/sessions/<id>`, and opens the session once it is set up; a failed setup is shown with its reason. The pod sets itself up whatever happens to your machine meanwhile. A session id is unique across your hosts. `open`, `rm` and `<id>.agentbox` find the session by its record; `<id>.agentbox` goes straight into the session's dev container, through `kubectl exec` on the host.
 
 `open` uses [cmux](https://cmux.dev) when run inside it, plain `ssh` otherwise.
 
@@ -211,5 +211,5 @@ Set `"openTerminalLinksInCmuxBrowser": false` instead to send every link out, lo
 - **Push before you leave a session.** `rm` refuses to delete unpushed work, but losing the host loses it.
 - **Let agents push branches, not `main`.** They act with your accounts; branch protection on your repos is the guard rail.
 - **Rebuild instead of repairing.** If a session's environment drifts, `agentbox rm` and `agentbox new` with the same id start clean from the workspace repo.
-- **Bring a stopped session back** with `agentbox open <id>`, which starts its container. Sessions without the restart policy stay down after the host reboots until then.
-- **Watch the disk.** `ssh devbox df -h /var/lib/agentbox` shows the volume; `docker system prune` on the host clears old images after Feature updates.
+- **After a reboot** Kubernetes starts the session pods again, and each rebuilds its dev container from the workspace on its volume.
+- **Watch the disk.** `ssh devbox df -h /var/lib/agentbox` shows the volume; each session keeps its own images, which go with `agentbox rm`.

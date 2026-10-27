@@ -33,6 +33,14 @@ export function run(command: string, args: string[], options: Options = {}): str
   return result.stdout ?? ''
 }
 
+export type Outcome = { status: number; stdout: string; stderr: string }
+
+export function attempt(command: string, args: string[]): Outcome {
+  const result = spawnSync(command, args, { encoding: 'utf8' })
+  if (result.error) throw result.error
+  return { status: result.status ?? 1, stdout: result.stdout, stderr: result.stderr }
+}
+
 export function succeeds(command: string, args: string[], options: Options = {}): boolean {
   return spawn(command, args, { stdout: 'ignore', ...options }).status === 0
 }

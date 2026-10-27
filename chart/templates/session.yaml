@@ -1,0 +1,68 @@
+{{- $shared := list "claude" "gh" "git" "pnpm-store" }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-setup
+  labels:
+    agentbox.session: {{ .Release.Name }}
+data:
+  setup.sh: |
+{{ .Files.Get "setup.sh" | indent 4 }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ .Release.Name }}-workspace
+  labels:
+    agentbox.session: {{ .Release.Name }}
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: {{ .Values.workspaceSize }}
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: {{ .Release.Name }}
+  labels:
+    agentbox.session: {{ .Release.Name }}
+spec:
+  runtimeClassName: sysbox-runc
+  hostUsers: false
+  automountServiceAccountToken: false
+  containers:
+    - name: session
+      image: docker:29.9.2-dind@sha256:9e79b879b177fbd72c34376a3dd3d91747da5db49e1f560f76aea59561471977
+      command: [sh, /agentbox/setup.sh]
+      env:
+        - {name: SESSION_ID, value: {{ .Release.Name | quote }}}
+        - {name: SESSION_REPOSITORY, value: {{ required "repository is required" .Values.repository | quote }}}
+        - {name: SESSION_BRANCH, value: {{ .Values.branch | quote }}}
+        - {name: SESSION_AUTHORIZED_KEY, value: {{ required "authorizedKey is required" .Values.authorizedKey | quote }}}
+        - {name: SESSION_READY_MARKER, value: {{ required "readyMarker is required" .Values.readyMarker | quote }}}
+        - {name: SESSION_FAILED_MARKER, value: {{ required "failedMarker is required" .Values.failedMarker | quote }}}
+      readinessProbe:
+        exec:
+          command: [test, -f, {{ .Values.readyMarker | quote }}]
+        periodSeconds: 5
+      volumeMounts:
+        - {name: setup, mountPath: /agentbox}
+        - {name: workspace, mountPath: /workspaces}
+        {{- range $shared }}
+        - {name: {{ . }}, mountPath: /var/lib/agentbox/{{ . }}}
+        {{- end }}
+  volumes:
+    - name: setup
+      configMap:
+        name: {{ .Release.Name }}-setup
+    - name: workspace
+      persistentVolumeClaim:
+        claimName: {{ .Release.Name }}-workspace
+    # Shared by every session on the host, as the agentbox Feature expects
+    {{- range $shared }}
+    - name: {{ . }}
+      hostPath:
+        path: /var/lib/agentbox/{{ . }}
+        type: DirectoryOrCreate
+    {{- end }}

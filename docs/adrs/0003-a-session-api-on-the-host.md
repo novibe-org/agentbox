@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded by ADR 0006
 date: 2026-10-19
 decision-makers: Stefan Stührmann
 ---

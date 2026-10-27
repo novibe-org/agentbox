@@ -7,8 +7,7 @@ deployment {
   }
   node hetznerCloud 'Hetzner Cloud' {
     node server 'Host' {
-      description 'Server with the agentbox user, Docker, Node, the Dev Container CLI and its volume at /var/lib/agentbox, set up by the Hetzner module\'s cloud-init, which installs agentboxd of the CLI\'s version from its release and runs it with systemd. A host on the tailnet joins it with tailscaled, whose state is on the volume, and its firewall opens no port.'
-      instanceOf agentbox.agentboxd
+      description 'Server with its volume at /var/lib/agentbox and k3s, whose sessions run with the RuntimeClass sysbox-runc; its Kubernetes API answers the host and its pods only, sessions keep their workspace on the server\'s volume through local-path and share its login and cache directories, and the system-upgrade-controller upgrades k3s. A host on the tailnet joins it with tailscaled, whose state is on the volume, and its firewall opens no port.'
       instanceOf agentbox.session
     }
   }

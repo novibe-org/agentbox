@@ -1,23 +1,24 @@
 #!/usr/bin/env bash
+# Stands in for OpenTofu on a CI runner: the runner itself becomes the host, set up by provision.sh.
 set -euo pipefail
 repo=$(cd "$(dirname "$0")/../.." && pwd)
 d=${1#-chdir=}
-c=agentbox-test-$(basename "$d")
 case $2 in
   init) ;;
   apply)
-    docker run -d --name "$c" --label agentbox.test=host \
-      -e AUTHORIZED_KEY="$(cat "$d/id_ed25519.pub")" \
-      -e HOST_KEY="$(cat "$d/ssh_host_ed25519_key")" \
-      -v /var/run/docker.sock:/var/run/docker.sock \
-      -v "$repo/dist/agentboxd:/usr/local/bin/agentboxd:ro" \
-      -v /var/lib/agentbox:/var/lib/agentbox \
-      -v "$AGENTBOX_TEST_FIXTURES:$AGENTBOX_TEST_FIXTURES:ro" \
-      agentbox-test-host >/dev/null
+    id agentbox >/dev/null 2>&1 || sudo useradd -m -s /bin/bash agentbox
+    echo 'agentbox ALL=(ALL) NOPASSWD:ALL' | sudo tee /etc/sudoers.d/agentbox >/dev/null
+    sudo install -d -m 700 -o agentbox -g agentbox /home/agentbox/.ssh
+    sudo install -m 600 -o agentbox -g agentbox "$d/id_ed25519.pub" /home/agentbox/.ssh/authorized_keys
+    command -v sshd >/dev/null || sudo apt-get install -y -qq openssh-server >/dev/null
+    sudo install -m 600 "$d/ssh_host_ed25519_key" /etc/ssh/ssh_host_ed25519_key
+    sudo ssh-keygen -y -f /etc/ssh/ssh_host_ed25519_key | sudo tee /etc/ssh/ssh_host_ed25519_key.pub >/dev/null
+    sudo systemctl restart ssh
+    sudo sh "$repo/modules/hetzner/provision.sh" >/dev/null
     echo '{}' > "$d/terraform.tfstate"
+    basename "$d" >> "$AGENTBOX_TEST_HOSTS"
     ;;
   output)
-    ip=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$c")
-    if [ "$3" = -json ]; then echo "{\"address\":{\"value\":\"$ip\"},\"ipv4\":{\"value\":\"$ip\"}}"; else echo "$ip"; fi
+    if [ "${3:-}" = -json ]; then echo '{"address":{"value":"127.0.0.1"},"ipv4":{"value":"127.0.0.1"}}'; else echo 127.0.0.1; fi
     ;;
 esac

@@ -1,10 +1,9 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { setTimeout as sleep } from 'node:timers/promises'
-import type { Refusal, Session } from '../lib/api.ts'
 import { hostName, sessionId } from '../lib/names.ts'
 import { Exit, exec, fail, run } from '../lib/process.ts'
-import { call, connect } from './client.ts'
+import { awaitSetup, installSession, listSessionsOn, removeSessionFrom } from './chart.ts'
+import { withCluster } from './cluster.ts'
 import { home, hosts, sessions } from './paths.ts'
 
 function machine(): string {
@@ -74,18 +73,13 @@ export async function newSession(id: string, repo: string | undefined, host: str
     rmSync(record, { force: true })
     return fail(message)
   }
-  await connect(m).catch((error: unknown) => refuse(error instanceof Exit ? error.message : String(error)))
-  const created = await call<Session | Refusal>(m, 'POST', '/sessions', { id, ...source, authorizedKey })
-  if (created.status === 409) refuse(`Session ${id} already exists on ${m}`)
-  if (created.status !== 202) refuse(`agentboxd on ${m} refused session ${id}: ${(created.body as Refusal).error}`)
-
-  console.log(`Setting up ${id} on ${m}`)
-  for (;;) {
-    await sleep(2000)
-    const { status, body } = await call<Session>(m, 'GET', `/sessions/${id}`)
-    if (body?.status === 'ready') break
-    if (status === 404 || body?.status === 'failed') fail(`The setup of ${id} failed: ${body?.error ?? `${m} has no session ${id}`}`)
-  }
+  await withCluster(m, async (cluster) => {
+    const installed = installSession(cluster, id, { repository: source.repository, branch: source.branch ?? '', authorizedKey })
+    if (installed.outcome === 'taken') refuse(`Session ${id} already exists on ${m}`)
+    if (installed.outcome === 'refused') refuse(`${m} did not take session ${id}: ${installed.reason}`)
+    console.log(`Setting up ${id} on ${m}`)
+    await awaitSetup(cluster, id)
+  })
   openSession(id)
 }
 
@@ -101,13 +95,12 @@ export async function listSessions(): Promise<void> {
   let listed = 0
   for (const host of all) {
     try {
-      await connect(host)
-      const { body } = await call<Session[]>(host, 'GET', '/sessions')
-      for (const s of body) console.log([s.id, host, s.status === 'ready' ? s.state : s.status].join('\t'))
-      listed += body.length
+      const found = await withCluster(host, async (cluster) => listSessionsOn(cluster))
+      for (const s of found) console.log([s.id, host, s.state].join('\t'))
+      listed += found.length
     } catch (error) {
       if (!(error instanceof Exit)) throw error
-      console.error(error.message)
+      console.error(`${host} does not answer: ${error.message}`)
       unreachable = true
     }
   }
@@ -118,21 +111,17 @@ export async function listSessions(): Promise<void> {
 export async function removeSession(id: string): Promise<void> {
   sessionId(id)
   const m = sessionHost(id)
-  await connect(m)
-  const { status, body } = await call<Refusal | undefined>(m, 'DELETE', `/sessions/${id}`)
-  if (status === 404) fail(`${m} has no session ${id}`)
-  if (status === 409 && body?.unpushed) fail(`Not deleting ${id}, unpushed or uncommitted work in:\n${body.unpushed.join('\n')}`)
-  if (status === 409) fail(`Not deleting ${id}: ${body?.error}`)
-  if (status !== 204) fail(`agentboxd on ${m} did not delete ${id}: ${body?.error}`)
+  const removed = await withCluster(m, async (cluster) => removeSessionFrom(cluster, id))
+  if (removed.outcome === 'missing') fail(`${m} has no session ${id}`)
+  if (removed.outcome === 'lost') fail(`Session ${id} has lost its container, so its work cannot be checked; its workspace stays on ${m}`)
+  if (removed.outcome === 'unpushed') fail(`Not deleting ${id}, unpushed or uncommitted work in:\n${removed.repos.join('\n')}`)
   rmSync(join(sessions, id), { force: true })
 }
 
 export function proxy(target: string): never {
   const id = sessionId(target.replace(/\.agentbox$/, ''))
-  exec('ssh', [
-    sessionHost(id),
-    `c=$(docker ps -aq --filter label=agentbox.session=${id} | head -1); ` +
-      `[ -n "$c" ] || { echo 'No session ${id} on this host' >&2; exit 1; }; ` +
-      `docker start $c >/dev/null && exec docker exec -i -u root $c sh -c 'mkdir -p /run/sshd && exec /usr/sbin/sshd -i'`,
-  ])
+  const startSshd = `c=$(docker ps -q --filter label=devcontainer.local_folder=/workspaces/${id}); ` +
+    `[ -n "$c" ] || { echo "No session ${id} on this host" >&2; exit 1; }; ` +
+    `exec docker exec -i -u root $c sh -c "mkdir -p -m 755 /run/sshd && exec /usr/sbin/sshd -i -e"`
+  exec('ssh', [sessionHost(id), `sudo k3s kubectl exec -i ${id} -- sh -c '${startSshd}'`])
 }

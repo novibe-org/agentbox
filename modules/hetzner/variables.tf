@@ -19,11 +19,6 @@ variable "host_key_pub" {
   type        = string
 }
 
-variable "release" {
-  description = "agentbox release whose agentboxd the host runs, the CLI's own version"
-  type        = string
-}
-
 variable "server_type" {
   description = "Hetzner server type"
   type        = string
@@ -53,4 +48,23 @@ variable "tailnet" {
   description = "Whether the host is reached over the developer's tailnet only, with no port open to the internet"
   type        = bool
   default     = false
+}
+
+variable "join_running_host" {
+  description = "Whether OpenTofu puts the already running server on the tailnet over SSH, with tailnet_auth_key"
+  type        = bool
+  default     = false
+}
+
+variable "ssh_private_key" {
+  description = "Private key OpenTofu logs in with to change the running server"
+  type        = string
+  default     = null
+  sensitive   = true
+}
+
+variable "ssh_host_key" {
+  description = "The running server's host key, which OpenTofu checks when it logs in"
+  type        = string
+  default     = null
 }

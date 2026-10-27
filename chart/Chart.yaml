@@ -1,0 +1,5 @@
+apiVersion: v2
+name: session
+description: One agentbox session, a Sysbox pod that runs the workspace's dev container in its own Docker
+type: application
+version: 0.1.0
